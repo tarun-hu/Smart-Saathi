@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SmartSaathi Caregiver Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#1975d2",
+                        "background-light": "#f6f7f8",
+                        "background-dark": "#111921",
+                    },
+                    fontFamily: {
+                        "display": ["Lexend"]
+                    },
+                    borderRadius: {"DEFAULT": "1rem", "lg": "2rem", "xl": "3rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            font-family: 'Lexend', sans-serif;
+            font-size: 18px; /* 18pt equivalent roughly */
+        }
+        h1, h2, h3 {
+            font-size: 24px; /* 24pt equivalent roughly */
+            font-weight: 700;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen">
+<div class="relative flex h-auto min-h-screen w-full flex-col bg-background-light dark:bg-background-dark group/design-root overflow-x-hidden pb-24">
+<!-- Top Header -->
+<div class="flex items-center bg-white dark:bg-slate-900 p-6 border-b border-slate-200 dark:border-slate-800 justify-between sticky top-0 z-50">
+<div class="text-primary flex size-12 shrink-0 items-center justify-center">
+<span class="material-symbols-outlined text-3xl">menu</span>
+</div>
+<h1 class="text-slate-900 dark:text-white flex-1 text-center font-display tracking-tight">SmartSaathi Dashboard</h1>
+<div class="flex w-12 items-center justify-end">
+<button class="relative flex items-center justify-center rounded-full h-12 w-12 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-2 right-2 flex h-3 w-3">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-3 w-3 bg-red-500 border-2 border-white dark:border-slate-900"></span>
+</span>
+</button>
+</div>
+</div>
+<!-- Quick Actions Section -->
+<div class="px-6 pt-8 pb-4">
+<div class="flex gap-4">
+<button class="flex-1 flex items-center justify-center gap-2 rounded-xl h-16 bg-primary text-white font-bold shadow-lg shadow-primary/20 hover:bg-primary/90 transition-colors">
+<span class="material-symbols-outlined">call</span>
+<span>Call Senior</span>
+</button>
+<button class="flex-1 flex items-center justify-center gap-2 rounded-xl h-16 bg-white dark:bg-slate-800 text-primary border-2 border-primary font-bold hover:bg-primary/5 transition-colors">
+<span class="material-symbols-outlined">chat_bubble</span>
+<span>Message</span>
+</button>
+</div>
+</div>
+<!-- Real-time Map Section -->
+<div class="px-6 py-4">
+<div class="flex items-center justify-between mb-4">
+<h2 class="font-display">Current Location</h2>
+<span class="text-sm bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 px-3 py-1 rounded-full font-medium">Live Now</span>
+</div>
+<div class="relative w-full aspect-video rounded-xl overflow-hidden shadow-md border-4 border-white dark:border-slate-800">
+<div class="absolute inset-0 bg-slate-200 dark:bg-slate-800 flex items-center justify-center" data-alt="Detailed city map showing a pinpoint location" data-location="New Delhi, India" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuBS2xUMuSJ5Bmwatno86enm292AiKypKDe6RE-QIlLu2jQRSuA4WlqmQm1FgYGcPjPJ76062yfDPkWIoLIB5hTcrHWuIxLp-jjUgyTtDEh_mMaju8M_BY_1QJp6vwMAqbN8muoLi60vHb5QVpNLYxhVL-QRYbCaa3nGEjMOegiSIh-mXIxXBsdjSthgSg-RUxy61l-sJnGB235slBOBDj56-dEfj17-7SZc-tuqTlD1xjF9R0mvWG4Gmaa9Cfnj9Tqlv2UAK1phSqU'); background-size: cover; background-position: center;">
+<!-- Pin Overlay -->
+<div class="relative">
+<span class="material-symbols-outlined text-primary text-5xl drop-shadow-lg">location_on</span>
+<div class="absolute -top-12 -left-1/2 bg-white dark:bg-slate-900 px-3 py-1 rounded-lg text-sm font-bold shadow-xl border border-slate-100 dark:border-slate-700 whitespace-nowrap">
+                            Mr. Gupta is Home
+                        </div>
+</div>
+</div>
+<div class="absolute bottom-4 right-4 flex flex-col gap-2">
+<button class="bg-white dark:bg-slate-900 p-2 rounded-lg shadow-lg text-slate-700 dark:text-slate-300">
+<span class="material-symbols-outlined">my_location</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Health Logs: Medications -->
+<div class="px-6 py-4">
+<div class="flex items-center justify-between mb-4">
+<h2 class="font-display">Health Logs</h2>
+<button class="text-primary font-semibold text-sm">View History</button>
+</div>
+<div class="space-y-4">
+<!-- Med Taken -->
+<div class="flex items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-xl border-l-4 border-green-500 shadow-sm">
+<div class="size-12 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center text-green-600">
+<span class="material-symbols-outlined">pill</span>
+</div>
+<div class="flex-1">
+<div class="flex justify-between">
+<h3 class="text-lg font-bold">Metformin (500mg)</h3>
+<span class="text-sm text-slate-500">08:30 AM</span>
+</div>
+<p class="text-sm text-green-600 font-medium">Taken</p>
+</div>
+</div>
+<!-- Med Missed -->
+<div class="flex items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-xl border-l-4 border-red-500 shadow-sm">
+<div class="size-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-red-600">
+<span class="material-symbols-outlined">medication</span>
+</div>
+<div class="flex-1">
+<div class="flex justify-between">
+<h3 class="text-lg font-bold">Multivitamin</h3>
+<span class="text-sm text-slate-500">12:00 PM</span>
+</div>
+<p class="text-sm text-red-600 font-medium italic">Missed - Alert Sent</p>
+</div>
+</div>
+<!-- Upcoming -->
+<div class="flex items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-xl border-l-4 border-primary/40 shadow-sm opacity-80">
+<div class="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">alarm</span>
+</div>
+<div class="flex-1">
+<div class="flex justify-between">
+<h3 class="text-lg font-bold">Blood Pressure</h3>
+<span class="text-sm text-slate-500">08:00 PM</span>
+</div>
+<p class="text-sm text-slate-500">Next Scheduled</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Notification Feed -->
+<div class="px-6 py-4 mb-10">
+<h2 class="font-display mb-4">Urgent Alerts</h2>
+<div class="flex flex-col gap-3">
+<div class="flex gap-4 p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/30">
+<span class="material-symbols-outlined text-red-600 fill-1">emergency</span>
+<div>
+<p class="font-bold text-red-900 dark:text-red-200">SOS Button Pressed</p>
+<p class="text-sm text-red-700 dark:text-red-300">Triggered from Senior App • 2 mins ago</p>
+</div>
+</div>
+<div class="flex gap-4 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-900/30">
+<span class="material-symbols-outlined text-amber-600">battery_alert</span>
+<div>
+<p class="font-bold text-amber-900 dark:text-amber-200">Low Battery Alert</p>
+<p class="text-sm text-amber-700 dark:text-amber-300">Device at 15% • 15 mins ago</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Bottom Navigation Bar -->
+<div class="fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 px-6 py-4 flex justify-between items-center shadow-2xl z-50">
+<a class="flex flex-col items-center gap-1 text-primary" href="#">
+<span class="material-symbols-outlined fill-1">grid_view</span>
+<span class="text-xs font-bold">Home</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-slate-400 dark:text-slate-500" href="#">
+<span class="material-symbols-outlined">monitor_heart</span>
+<span class="text-xs font-bold">Health</span>
+</a>
+<div class="relative -top-8">
+<button class="bg-primary text-white size-16 rounded-full flex items-center justify-center shadow-xl shadow-primary/40 border-4 border-white dark:border-slate-800">
+<span class="material-symbols-outlined text-3xl">add</span>
+</button>
+</div>
+<a class="flex flex-col items-center gap-1 text-slate-400 dark:text-slate-500" href="#">
+<span class="material-symbols-outlined">map</span>
+<span class="text-xs font-bold">History</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-slate-400 dark:text-slate-500" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="text-xs font-bold">Profile</span>
+</a>
+</div>
+</div>
+</body></html>

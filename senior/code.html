@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#1975d2",
+                        "background-light": "#f6f7f8",
+                        "background-dark": "#111921",
+                        "emergency": "#d32f2f",
+                        "success": "#2e7d32",
+                        "warning": "#ed6c02"
+                    },
+                    fontFamily: {
+                        "display": ["Lexend"]
+                    },
+                    borderRadius: {"DEFAULT": "1.5rem", "lg": "2.5rem", "xl": "3.5rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            font-family: 'Lexend', sans-serif;
+            font-size: 18pt;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 1, 'wght' 700, 'GRAD' 0, 'opsz' 48;
+            font-size: 40px;
+        }
+        .touch-target {
+            min-height: 60px;
+            min-width: 60px;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background-light text-slate-900 font-display">
+<!-- Top Navigation -->
+<header class="bg-white border-b-4 border-primary/20 p-6 flex items-center justify-between sticky top-0 z-40">
+<div class="flex items-center gap-4">
+<div class="size-16 rounded-full border-4 border-primary bg-primary/10 flex items-center justify-center overflow-hidden">
+<img alt="Profile" data-alt="Portrait of a smiling elderly person" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBllwkgn1pStwXrtF33viECIf27I9tWUq7MH2SziBOPq00hv3-zYuUuP54mu9qq7koIxlbKG3jsHC587t9BscguKJyaNf0e8ORJG4xPGrLzsSD2LiBjSxSt5b2sy3uCwpN31zU_e5T8c1hIkxP3d46hn34t4njdo1qrWlp2czUlxNqX3Z1oYzVxj3Agvrq660Zei_-NVMa6DcE0L2LWbrgy09KDfTzA5AyIA1MOLtnjx3LwLyua-xHVj0jMldrtCHAZ5EoAgDcRl-s"/>
+</div>
+<div>
+<h1 class="text-3xl font-bold leading-none">Hello, John</h1>
+<p class="text-xl text-slate-600">Friday, Oct 25</p>
+</div>
+</div>
+<button class="touch-target bg-primary/10 p-4 rounded-full flex items-center justify-center text-primary border-2 border-primary">
+<span class="material-symbols-outlined">settings</span>
+</button>
+</header>
+<main class="p-6 pb-40 space-y-8">
+<!-- Massive Voice Pulse Button -->
+<section class="flex flex-col items-center justify-center py-8">
+<div class="relative group">
+<div class="absolute inset-0 bg-primary/20 rounded-full animate-ping"></div>
+<button class="relative size-56 bg-primary text-white rounded-full shadow-2xl flex flex-col items-center justify-center gap-2 border-8 border-white touch-target">
+<span class="material-symbols-outlined !text-6xl">mic</span>
+<span class="text-2xl font-bold">TAP TO TALK</span>
+</button>
+</div>
+<p class="mt-6 text-2xl font-semibold text-primary text-center">"Hey SmartSaathi, remind me to take my medicine"</p>
+</section>
+<!-- Medication High Contrast Card -->
+<section>
+<h2 class="text-3xl font-bold mb-4 flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">pill</span> Next Task
+            </h2>
+<div class="bg-white border-4 border-primary rounded-xl p-8 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
+<div class="space-y-2">
+<p class="text-primary font-bold text-2xl tracking-widest uppercase">COMING UP AT 10:00 AM</p>
+<p class="text-5xl font-extrabold text-slate-900">Take Aspirin</p>
+<p class="text-2xl text-slate-600">1 Pill with water after breakfast</p>
+</div>
+<button class="bg-success text-white px-10 py-6 rounded-full text-2xl font-bold flex items-center gap-3 touch-target shadow-lg active:scale-95 transition-transform">
+<span class="material-symbols-outlined">check_circle</span>
+                    I TOOK IT
+                </button>
+</div>
+</section>
+<!-- Water Tracker Grid -->
+<section>
+<h2 class="text-3xl font-bold mb-4 flex items-center gap-3">
+<span class="material-symbols-outlined text-blue-500">water_drop</span> Drink Water
+            </h2>
+<div class="bg-blue-50 border-4 border-blue-200 rounded-xl p-8 shadow-md">
+<div class="flex flex-wrap gap-4 justify-between mb-8">
+<!-- Glasses -->
+<div class="flex flex-col items-center text-blue-600">
+<span class="material-symbols-outlined !text-5xl">local_drink</span>
+</div>
+<div class="flex flex-col items-center text-blue-600">
+<span class="material-symbols-outlined !text-5xl">local_drink</span>
+</div>
+<div class="flex flex-col items-center text-blue-600">
+<span class="material-symbols-outlined !text-5xl">local_drink</span>
+</div>
+<div class="flex flex-col items-center text-blue-200">
+<span class="material-symbols-outlined !text-5xl">local_drink</span>
+</div>
+<div class="flex flex-col items-center text-blue-200">
+<span class="material-symbols-outlined !text-5xl">local_drink</span>
+</div>
+<div class="flex flex-col items-center text-blue-200">
+<span class="material-symbols-outlined !text-5xl">local_drink</span>
+</div>
+<div class="flex flex-col items-center text-blue-200">
+<span class="material-symbols-outlined !text-5xl">local_drink</span>
+</div>
+<div class="flex flex-col items-center text-blue-200">
+<span class="material-symbols-outlined !text-5xl">local_drink</span>
+</div>
+</div>
+<div class="flex items-center justify-between">
+<p class="text-2xl font-bold">3 of 8 glasses done</p>
+<button class="bg-blue-600 text-white px-8 py-4 rounded-full font-bold flex items-center gap-2 touch-target">
+<span class="material-symbols-outlined">add</span> ADD GLASS
+                    </button>
+</div>
+</div>
+</section>
+<!-- Family Quick Contacts -->
+<section>
+<h2 class="text-3xl font-bold mb-4">Family</h2>
+<div class="grid grid-cols-2 gap-4">
+<div class="bg-white p-6 rounded-xl border-2 border-slate-200 flex flex-col items-center gap-4 text-center">
+<div class="size-24 rounded-full overflow-hidden border-4 border-primary">
+<img alt="Sarah" data-alt="Close up portrait of a young woman" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBMdt_XfjqwP5uL201xAbOjsgYdN9Of--NxaIRENl6umhPF77EpZpQIEfb4OfQNJagmxJMExS-KwRiB2pSScgatSpcQONSEhF9tU_a31mdwviDqKVV6tqR9Wf7i3Iob-xJC8t2cJg5iajN3Ch0DHQ_3MN_VpdVWNfLMh7Y1md3wm7ydX5Du6Js7oG7-hGJjzhZBxtn098gYEPK7p4G6gp7odrDsyw0WAFLAgqAejqVKx9UYGl4IGTnOTSVwNDkWaXNZUYcTfEIU-vg"/>
+</div>
+<p class="text-2xl font-bold leading-tight">Call Sarah<br/><span class="text-xl font-normal text-slate-500">(Daughter)</span></p>
+</div>
+<div class="bg-white p-6 rounded-xl border-2 border-slate-200 flex flex-col items-center gap-4 text-center">
+<div class="size-24 rounded-full overflow-hidden border-4 border-primary">
+<img alt="David" data-alt="Portrait of a friendly looking man" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAS8x_xZzQe_5bXfMRZvMSXN6rzXiP617UQ0YsFwl2ojaaDNlxJPSgB8yy_V54lHP72hTqZwwpuiljkKPJEjA3IOFvcQbSlLQW7Vh4K9ZHc-F8t940EXzucQEkKSLgVJsiyVsV_kM-p9WpguPbzYMbYLMDQXeoHqdnSvVv10Qw_HhA2LYnJabyxGdNPd1OegiPEGC25Cpm-5G9aKBjWiGkC7li2UOLYtdCHwcoRWmoYonFCa3pRpHqq_42JVuNHRdvKHkqMECGvaqA"/>
+</div>
+<p class="text-2xl font-bold leading-tight">Call David<br/><span class="text-xl font-normal text-slate-500">(Son)</span></p>
+</div>
+</div>
+</section>
+</main>
+<!-- Bottom Navigation Bar -->
+<nav class="fixed bottom-0 left-0 right-0 bg-white border-t-8 border-primary/10 px-4 pb-8 pt-4 z-50">
+<div class="max-w-md mx-auto flex justify-around items-center">
+<a class="flex flex-col items-center gap-1 text-primary" href="#">
+<span class="material-symbols-outlined !text-5xl">home</span>
+<span class="text-lg font-bold">HOME</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-slate-400" href="#">
+<span class="material-symbols-outlined !text-5xl">calendar_month</span>
+<span class="text-lg font-bold">MY DAY</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-slate-400" href="#">
+<span class="material-symbols-outlined !text-5xl">group</span>
+<span class="text-lg font-bold">FAMILY</span>
+</a>
+</div>
+</nav>
+<!-- Massive SOS FAB -->
+<button class="fixed right-6 bottom-36 size-32 bg-emergency text-white rounded-full shadow-[0_20px_50px_rgba(211,47,47,0.4)] border-8 border-white flex flex-col items-center justify-center z-50 touch-target active:scale-90 transition-transform">
+<span class="material-symbols-outlined !text-6xl">sos</span>
+<span class="text-2xl font-black">SOS</span>
+</button>
+<!-- 'Listen' Voice Overlay (Hidden by default, shown when mic is active) -->
+<!-- This would normally be toggled by JS, here it's prepared for the visual -->
+<div class="hidden fixed inset-0 bg-primary/95 flex flex-col items-center justify-center z-[100] p-12 text-center text-white">
+<div class="mb-12">
+<div class="size-48 bg-white/20 rounded-full flex items-center justify-center border-4 border-white animate-pulse">
+<span class="material-symbols-outlined !text-8xl">mic</span>
+</div>
+</div>
+<h2 class="text-5xl font-bold mb-6">Listening...</h2>
+<p class="text-3xl opacity-90">Say something like: "Call my daughter"</p>
+<button class="mt-20 border-4 border-white px-12 py-6 rounded-full text-3xl font-bold touch-target">
+            CANCEL
+        </button>
+</div>
+</body></html>
