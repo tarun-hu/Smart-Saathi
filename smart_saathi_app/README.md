@@ -1,17 +1,91 @@
-# smart_saathi_app
+# Smart-Saathi
 
-A new Flutter project.
+Smart-Saathi is a comprehensive Flutter application designed to bridge the caretaking gap between seniors and their caregivers. It features a dual-interface system tailored for both demographics, providing real-time emergency alerts, location tracking, and voice-assisted interactions.
 
-## Getting Started
+## 🌟 Key Features
 
-This project is a starting point for a Flutter application.
+*   **Role-Based Interfaces**: Distinct, easy-to-use dashboards specifically designed for Seniors (large buttons, simple navigation) and Caregivers (detailed logs, real-time maps).
+*   **Secure Pairing System**: Caregivers securely connect to their designated seniors using a unique, auto-generated 8-character pairing code.
+*   **Real-Time SOS Alerts**: Seniors can trigger an emergency SOS with a single tap. This instantly broadcasts their live GPS coordinates to their connected caregiver's device via Supabase Realtime WebSockets.
+*   **Live Location Tracking**: Caregiver dashboards integrate Google Maps to display the exact location of the senior during an active emergency.
+*   **Voice Assistance (Tap to Talk)**: Integrated Speech-to-Text allows seniors to use voice commands (e.g., "Remind me to take my medicine") for easier interaction.
+*   **Health & Daily Logs**: Track daily activities like medication adherence and hydration (UI mockups ready for backend integration).
 
-A few resources to get you started if this is your first Flutter project:
+## 🛠️ Tech Stack
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+*   **Frontend**: Flutter (Dart) - Supports Web, Android, and iOS.
+*   **Backend as a Service (BaaS)**: [Supabase](https://supabase.com/)
+    *   **Authentication**: Email & Password signups.
+    *   **Database**: PostgreSQL for storing `profiles`, `connections`, and `alerts`.
+    *   **Realtime**: WebSocket subscriptions for instant SOS delivery.
+*   **Key Plugins**:
+    *   `google_maps_flutter`: For rendering interactive maps.
+    *   `geolocator`: For precise device location access.
+    *   `speech_to_text`: For voice recognition capabilities.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## 🚀 Getting Started
+
+### Prerequisites
+
+*   Install [Flutter SDK](https://flutter.dev/docs/get-started/install) (version 3.11.0 or higher recommended).
+*   A Supabase account and project.
+*   A Google Cloud project with the Maps SDK enabled (for Android/iOS/Web).
+
+### Installation
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/yourusername/smart-saathi.git
+    cd smart-saathi/smart_saathi_app
+    ```
+
+2.  **Install dependencies:**
+    ```bash
+    flutter pub get
+    ```
+
+3.  **Supabase Configuration:**
+    Ensure your `lib/main.dart` and/or `lib/services/supabase_service.dart` files are configured with your specific Supabase Project URL and Anon Key.
+
+    *Note: The current repository might contain hardcoded keys for demo purposes. For production, move these to a `.env` file.*
+
+4.  **Google Maps API Key:**
+    To render maps on Android, ensure your API key is added to `android/app/src/main/AndroidManifest.xml` inside the `<application>` tag:
+    ```xml
+    <meta-data android:name="com.google.android.geo.API_KEY" android:value="YOUR_API_KEY_HERE"/>
+    ```
+    *(For web, integrate the script tag in `web/index.html`)*
+
+### Running the App
+
+Run the app on your preferred connected device or emulator:
+
+```bash
+# To run on Chrome/Edge (Web)
+flutter run -d chrome
+
+# To run on Android/Windows
+flutter run
+```
+
+## 🧪 Testing the Real-Time Demo
+
+To test the Caregiver-Senior connection loop locally on a single machine:
+
+1.  Start the Flutter web server (`flutter run -d edge`).
+2.  Open the provided localhost URL in **two separate browser windows** (using Incognito for the second window is recommended to isolate sessions).
+3.  **Window 1 (Senior)**: Sign up, select the "Senior" role. Note the 8-character pairing code at the top right of the dashboard.
+4.  **Window 2 (Caregiver)**: Sign up, select the "Caregiver" role. You will be prompted for a code. Enter the code from Window 1.
+5.  **Trigger SOS**: In Window 1 (Senior), tap the red SOS button.
+6.  In less than a second, Window 2 (Caregiver) will lock into an emergency state, displaying a red alert dialogue and plotting the live coordinates on the map!
+
+## 🔒 Database Schema (Overview)
+
+The application relies on the following core tables in Supabase:
+
+*   **`profiles`**: Extends the `auth.users` table to include the user's selected `role` ('senior' or 'caregiver') and full name.
+*   **`connections`**: Links a `caregiver_id` to a `senior_id`, establishing the authorization scope for alerts.
+*   **`alerts`**: Logs emergency events (latitude, longitude, timestamp) generated by seniors. Row Level Security (RLS) policies ensure only connected caregivers can subscribe to these rows.
+
+## 📄 License
+This project is licensed under the MIT License.
