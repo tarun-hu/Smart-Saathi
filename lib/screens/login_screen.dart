@@ -40,14 +40,19 @@ class _LoginScreenState extends State<LoginScreen> {
       } else {
         final res = await Supabase.instance.client.auth.signUp(email: email.trim(), password: password);
         if (res.user != null) {
-          // Attempt to insert profile, catch if it violates unique constraint (already exists)
-          try {
-            await Supabase.instance.client.from('profiles').insert({
-              'id': res.user!.id,
-              'role': role,
-            });
-          } catch(e) {
-             print('Profile creation error or already exists: $e');
+          await Supabase.instance.client.from('profiles').upsert({
+            'id': res.user!.id,
+            'role': role,
+          });
+
+          final profile = await Supabase.instance.client
+              .from('profiles')
+              .select('role')
+              .eq('id', res.user!.id)
+              .single();
+
+          if (profile['role'] != role) {
+            throw Exception('Failed to finish account setup. Please try again.');
           }
         }
       }
@@ -56,6 +61,9 @@ class _LoginScreenState extends State<LoginScreen> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message), backgroundColor: Colors.red));
       }
     } catch (e) {
+      if (_isSignUp) {
+        await Supabase.instance.client.auth.signOut();
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red));
       }
