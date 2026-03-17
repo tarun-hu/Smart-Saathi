@@ -15,23 +15,39 @@ class _CaregiverScreenState extends State<CaregiverScreen> {
   StreamSubscription? _sosSubscription;
   SOSAlert? _latestAlert;
   GoogleMapController? _mapController;
+  String _seniorName = 'Senior';
 
   @override
   void initState() {
     super.initState();
-    
-    _sosSubscription = SupabaseService.listenToAlerts().listen((event) {
-      if (mounted && event.isNotEmpty) {
-        final alert = SOSAlert.fromMap(event.first);
-        if (_latestAlert == null || _latestAlert!.timestamp.isBefore(alert.timestamp)) {
-          setState(() {
-            _latestAlert = alert;
-          });
-          _mapController?.animateCamera(
-            CameraUpdate.newLatLngZoom(LatLng(alert.latitude, alert.longitude), 15),
-          );
-          _showSOSDialog(alert);
-        }
+    _initConnection();
+  }
+
+  Future<void> _initConnection() async {
+    // Fetch the paired senior's ID and name
+    final seniorId = await SupabaseService.getConnectedSeniorId();
+    if (seniorId == null) return;
+
+    final name = await SupabaseService.getConnectedSeniorName();
+    if (mounted) setState(() => _seniorName = name);
+
+    // Listen only to this senior's alerts
+    _sosSubscription = SupabaseService.listenToAlerts(seniorId).listen((event) {
+      if (!mounted || event.isEmpty) return;
+
+      // Filter to only unresolved alerts client-side as well
+      final unresolved = event.where((e) => e['is_resolved'] == false).toList();
+      if (unresolved.isEmpty) return;
+
+      final alert = SOSAlert.fromMap(unresolved.first);
+      if (_latestAlert == null || _latestAlert!.timestamp.isBefore(alert.timestamp)) {
+        setState(() {
+          _latestAlert = alert;
+        });
+        _mapController?.animateCamera(
+          CameraUpdate.newLatLngZoom(LatLng(alert.latitude, alert.longitude), 15),
+        );
+        _showSOSDialog(alert);
       }
     });
   }
@@ -60,7 +76,7 @@ class _CaregiverScreenState extends State<CaregiverScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('John just triggered an SOS alert!', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              Text('$_seniorName just triggered an SOS alert!', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const SizedBox(height: 16),
               const Text('Message:', style: TextStyle(fontWeight: FontWeight.bold)),
               Text(alert.message),
@@ -73,8 +89,12 @@ class _CaregiverScreenState extends State<CaregiverScreen> {
              ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
               child: const Text('Acknowledge'),
-              onPressed: () {
-                Navigator.of(context).pop();
+              onPressed: () async {
+                await SupabaseService.resolveAlert(alert.id);
+                if (context.mounted) Navigator.of(context).pop();
+                if (mounted) {
+                  setState(() => _latestAlert = null);
+                }
               },
             ),
           ],
@@ -237,9 +257,9 @@ class _CaregiverScreenState extends State<CaregiverScreen> {
                                     borderRadius: BorderRadius.circular(8),
                                     boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4)],
                                   ),
-                                  child: const Text(
-                                    'Mr. Gupta is Home', 
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87)
+                                  child: Text(
+                                    '$_seniorName is Home', 
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87)
                                   ),
                                 ),
                               Positioned(

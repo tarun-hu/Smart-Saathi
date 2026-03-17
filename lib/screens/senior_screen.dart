@@ -15,6 +15,7 @@ class _SeniorScreenState extends State<SeniorScreen> {
   late stt.SpeechToText _speech;
   bool _isListening = false;
   String _text = 'Tap to Talk...';
+  String _userName = 'User';
   
   // State for the medicine reminder demo
   bool _medicinePending = true;
@@ -23,6 +24,12 @@ class _SeniorScreenState extends State<SeniorScreen> {
   void initState() {
     super.initState();
     _speech = stt.SpeechToText();
+    _loadUserName();
+  }
+
+  Future<void> _loadUserName() async {
+    final name = await SupabaseService.getCurrentUserName();
+    if (mounted) setState(() => _userName = name);
   }
 
   void _listen() async {
@@ -122,12 +129,12 @@ class _SeniorScreenState extends State<SeniorScreen> {
           children: [
             CircleAvatar(radius: 24, backgroundColor: Colors.grey[300], child: const Icon(Icons.person, color: Colors.white)),
             const SizedBox(width: 12),
-            const Column(
+            Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text('Good Morning,', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                Text('Ram Gupta', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black87)),
+                const Text('Good Morning,', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                Text(_userName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black87)),
               ],
             ),
           ],
