@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/location_data.dart';
 
 class SOSAlert {
   final String id;
@@ -142,5 +143,66 @@ class SupabaseService {
     await _client.from('alerts').update({
       'is_resolved': true,
     }).eq('id', alertId);
+  }
+
+  // ─────────────────── Location Tracking ───────────────────
+
+  /// Inserts a new location row for the current senior user.
+  static Future<void> upsertLocation(
+    double lat,
+    double lng,
+    String? address,
+  ) async {
+    final curUser = _client.auth.currentUser!;
+    await _client.from('locations').insert({
+      'senior_id': curUser.id,
+      'latitude': lat,
+      'longitude': lng,
+      'address': address,
+    });
+  }
+
+  /// Fetches the single most recent location for a senior.
+  static Future<LocationData?> getLatestLocation(String seniorId) async {
+    try {
+      final data = await _client
+          .from('locations')
+          .select()
+          .eq('senior_id', seniorId)
+          .order('created_at', ascending: false)
+          .limit(1);
+      if (data.isEmpty) return null;
+      return LocationData.fromMap(data.first);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Realtime stream of location updates for a specific senior.
+  static Stream<List<Map<String, dynamic>>> listenToLocation(String seniorId) {
+    return _client
+        .from('locations')
+        .stream(primaryKey: ['id'])
+        .eq('senior_id', seniorId)
+        .order('created_at', ascending: false)
+        .limit(1);
+  }
+
+  /// Returns the last [limit] location pings for a senior (newest first).
+  static Future<List<LocationData>> getLocationHistory(
+    String seniorId, {
+    int limit = 20,
+  }) async {
+    try {
+      final data = await _client
+          .from('locations')
+          .select()
+          .eq('senior_id', seniorId)
+          .order('created_at', ascending: false)
+          .limit(limit);
+      return data.map((e) => LocationData.fromMap(e)).toList();
+    } catch (_) {
+      return [];
+    }
   }
 }

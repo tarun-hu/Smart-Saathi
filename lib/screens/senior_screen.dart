@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
-import 'package:geolocator/geolocator.dart';
 import '../services/supabase_service.dart';
+import '../services/location_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SeniorScreen extends StatefulWidget {
@@ -20,16 +20,45 @@ class _SeniorScreenState extends State<SeniorScreen> {
   // State for the medicine reminder demo
   bool _medicinePending = true;
 
+  // Location tracking state
+  bool _locationActive = false;
+  bool _locationPermissionDenied = false;
+
   @override
   void initState() {
     super.initState();
     _speech = stt.SpeechToText();
     _loadUserName();
+    _startLocationTracking();
+  }
+
+  @override
+  void dispose() {
+    LocationService.stopTracking();
+    super.dispose();
   }
 
   Future<void> _loadUserName() async {
     final name = await SupabaseService.getCurrentUserName();
     if (mounted) setState(() => _userName = name);
+  }
+
+  Future<void> _startLocationTracking() async {
+    final hasPermission = await LocationService.ensurePermissions();
+    if (!hasPermission) {
+      if (mounted) {
+        setState(() => _locationPermissionDenied = true);
+      }
+      return;
+    }
+
+    await LocationService.startPeriodicTracking();
+    if (mounted) {
+      setState(() {
+        _locationActive = LocationService.isTracking;
+        _locationPermissionDenied = false;
+      });
+    }
   }
 
   void _listen() async {
@@ -78,25 +107,27 @@ class _SeniorScreenState extends State<SeniorScreen> {
   }
 
   Future<void> _triggerSOS() async {
-    // Basic permissions check inline for the demo
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Location permissions are denied')));
-        return;
+    // Use LocationService for a cleaner permission + location flow
+    final hasPermission = await LocationService.ensurePermissions();
+    if (!hasPermission) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Location permissions are denied')),
+        );
       }
+      return;
     }
     
     // Show sending feedback
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Fetching location and sending SOS...'), backgroundColor: Colors.orange,)
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Fetching location and sending SOS...'), backgroundColor: Colors.orange,)
+      );
+    }
 
     try {
-      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final position = await LocationService.getCurrentLocation();
       
-      // Trigger the local mock SOS broadcast
       await SupabaseService.triggerSOS(
         position.latitude, 
         position.longitude, 
@@ -123,7 +154,7 @@ class _SeniorScreenState extends State<SeniorScreen> {
       backgroundColor: const Color(0xFFf6f7f8),
       appBar: AppBar(
         backgroundColor: Colors.white,
-        elevation: 1, // Replaces custom BoxShadow
+        elevation: 1,
         toolbarHeight: 80,
         title: Row(
           children: [
@@ -156,7 +187,10 @@ class _SeniorScreenState extends State<SeniorScreen> {
             child: IconButton(
               iconSize: 24,
               icon: const Icon(Icons.logout, color: Color(0xFF1975d2)),
-              onPressed: () { Supabase.instance.client.auth.signOut(); },
+              onPressed: () {
+                LocationService.stopTracking();
+                Supabase.instance.client.auth.signOut();
+              },
             ),
           ),
         ],
@@ -168,6 +202,58 @@ class _SeniorScreenState extends State<SeniorScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+
+                // ── Location Sharing Status Banner ──
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: _locationActive
+                        ? const Color(0xFF2e7d32).withOpacity(0.1)
+                        : (_locationPermissionDenied ? Colors.orange.withOpacity(0.1) : Colors.grey.withOpacity(0.1)),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: _locationActive
+                          ? const Color(0xFF2e7d32)
+                          : (_locationPermissionDenied ? Colors.orange : Colors.grey),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _locationActive ? Icons.location_on : Icons.location_off,
+                        color: _locationActive
+                            ? const Color(0xFF2e7d32)
+                            : (_locationPermissionDenied ? Colors.orange : Colors.grey),
+                        size: 22,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _locationActive
+                              ? 'Location sharing: Active'
+                              : (_locationPermissionDenied
+                                  ? 'Location permission denied — tap to retry'
+                                  : 'Location sharing: Starting...'),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            color: _locationActive
+                                ? const Color(0xFF2e7d32)
+                                : (_locationPermissionDenied ? Colors.orange[800] : Colors.grey[700]),
+                          ),
+                        ),
+                      ),
+                      if (_locationPermissionDenied)
+                        IconButton(
+                          icon: const Icon(Icons.refresh, color: Colors.orange),
+                          onPressed: _startLocationTracking,
+                        ),
+                    ],
+                  ),
+                ),
+
                 // Voice Pulse Button section
                 const SizedBox(height: 20),
                 Center(

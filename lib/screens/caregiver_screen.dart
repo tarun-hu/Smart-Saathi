@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/supabase_service.dart';
+import '../models/location_data.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
@@ -13,9 +14,15 @@ class CaregiverScreen extends StatefulWidget {
 
 class _CaregiverScreenState extends State<CaregiverScreen> {
   StreamSubscription? _sosSubscription;
+  StreamSubscription? _locationSubscription;
   SOSAlert? _latestAlert;
   GoogleMapController? _mapController;
   String _seniorName = 'Senior';
+
+  // Live location state
+  LocationData? _latestLocation;
+  List<LocationData> _locationHistory = [];
+  String _lastSeenText = '';
 
   @override
   void initState() {
@@ -31,7 +38,48 @@ class _CaregiverScreenState extends State<CaregiverScreen> {
     final name = await SupabaseService.getConnectedSeniorName();
     if (mounted) setState(() => _seniorName = name);
 
-    // Listen only to this senior's alerts
+    // ── Fetch initial latest location ──
+    final loc = await SupabaseService.getLatestLocation(seniorId);
+    if (loc != null && mounted) {
+      setState(() {
+        _latestLocation = loc;
+        _lastSeenText = _formatTimestamp(loc.timestamp);
+      });
+      _mapController?.animateCamera(
+        CameraUpdate.newLatLngZoom(LatLng(loc.latitude, loc.longitude), 15),
+      );
+    }
+
+    // ── Fetch location history ──
+    final history = await SupabaseService.getLocationHistory(seniorId, limit: 20);
+    if (mounted) {
+      setState(() => _locationHistory = history);
+    }
+
+    // ── Start realtime location stream ──
+    _locationSubscription = SupabaseService.listenToLocation(seniorId).listen((event) {
+      if (!mounted || event.isEmpty) return;
+
+      final loc = LocationData.fromMap(event.first);
+      setState(() {
+        _latestLocation = loc;
+        _lastSeenText = _formatTimestamp(loc.timestamp);
+        // Prepend to history, avoiding duplicates
+        if (_locationHistory.isEmpty || _locationHistory.first.id != loc.id) {
+          _locationHistory.insert(0, loc);
+          if (_locationHistory.length > 20) _locationHistory.removeLast();
+        }
+      });
+
+      // Only pan map if there's NO active emergency
+      if (_latestAlert == null) {
+        _mapController?.animateCamera(
+          CameraUpdate.newLatLngZoom(LatLng(loc.latitude, loc.longitude), 15),
+        );
+      }
+    });
+
+    // ── Listen for SOS alerts ──
     _sosSubscription = SupabaseService.listenToAlerts(seniorId).listen((event) {
       if (!mounted || event.isEmpty) return;
 
@@ -52,9 +100,19 @@ class _CaregiverScreenState extends State<CaregiverScreen> {
     });
   }
 
+  String _formatTimestamp(DateTime dt) {
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inSeconds < 60) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${dt.day}/${dt.month} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
+  }
+
   @override
   void dispose() {
     _sosSubscription?.cancel();
+    _locationSubscription?.cancel();
     super.dispose();
   }
 
@@ -101,6 +159,47 @@ class _CaregiverScreenState extends State<CaregiverScreen> {
         );
       },
     );
+  }
+
+  /// Determine the map center, marker, and overlay label.
+  LatLng get _mapCenter {
+    if (_latestAlert != null) {
+      return LatLng(_latestAlert!.latitude, _latestAlert!.longitude);
+    }
+    if (_latestLocation != null) {
+      return LatLng(_latestLocation!.latitude, _latestLocation!.longitude);
+    }
+    return const LatLng(28.6139, 77.2090); // fallback: Delhi
+  }
+
+  Set<Marker> get _mapMarkers {
+    final markers = <Marker>{};
+    if (_latestAlert != null) {
+      markers.add(Marker(
+        markerId: const MarkerId('sos'),
+        position: LatLng(_latestAlert!.latitude, _latestAlert!.longitude),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+      ));
+    }
+    if (_latestLocation != null) {
+      markers.add(Marker(
+        markerId: const MarkerId('live'),
+        position: LatLng(_latestLocation!.latitude, _latestLocation!.longitude),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+      ));
+    }
+    return markers;
+  }
+
+  String get _locationLabel {
+    if (_latestAlert != null) return 'SOS Location';
+    if (_latestLocation != null && _latestLocation!.address != null) {
+      return _latestLocation!.address!;
+    }
+    if (_latestLocation != null) {
+      return '${_latestLocation!.latitude.toStringAsFixed(4)}, ${_latestLocation!.longitude.toStringAsFixed(4)}';
+    }
+    return '$_seniorName is Home';
   }
 
   @override
@@ -207,14 +306,39 @@ class _CaregiverScreenState extends State<CaregiverScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text('Current Location', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                          Row(
+                            children: [
+                              const Text('Current Location', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                              if (_lastSeenText.isNotEmpty) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[200],
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    _lastSeenText,
+                                    style: TextStyle(color: Colors.grey[600], fontSize: 11, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                             decoration: BoxDecoration(
                               color: _latestAlert != null ? Colors.red[100] : Colors.green[100],
                               borderRadius: BorderRadius.circular(20),
                             ),
-                            child: Text(_latestAlert != null ? 'EMERGENCY' : 'Live Now', style: TextStyle(color: _latestAlert != null ? Colors.red : Colors.green, fontWeight: FontWeight.bold, fontSize: 12)),
+                            child: Text(
+                              _latestAlert != null ? 'EMERGENCY' : (_latestLocation != null ? 'Live Now' : 'Waiting...'),
+                              style: TextStyle(
+                                color: _latestAlert != null ? Colors.red : Colors.green,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -237,31 +361,34 @@ class _CaregiverScreenState extends State<CaregiverScreen> {
                             children: [
                               GoogleMap(
                                 initialCameraPosition: CameraPosition(
-                                  target: _latestAlert != null 
-                                    ? LatLng(_latestAlert!.latitude, _latestAlert!.longitude)
-                                    : const LatLng(28.6139, 77.2090),
-                                  zoom: _latestAlert != null ? 15 : 10,
+                                  target: _mapCenter,
+                                  zoom: (_latestAlert != null || _latestLocation != null) ? 15 : 10,
                                 ),
-                                markers: _latestAlert != null 
-                                  ? { Marker(markerId: const MarkerId('sos'), position: LatLng(_latestAlert!.latitude, _latestAlert!.longitude)) }
-                                  : {},
+                                markers: _mapMarkers,
                                 onMapCreated: (controller) {
                                   _mapController = controller;
                                 },
                               ),
-                              if (_latestAlert == null)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              // Address overlay (bottom-left)
+                              Positioned(
+                                bottom: 8,
+                                left: 8,
+                                child: Container(
+                                  constraints: const BoxConstraints(maxWidth: 220),
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.8),
+                                    color: Colors.white.withOpacity(0.9),
                                     borderRadius: BorderRadius.circular(8),
                                     boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4)],
                                   ),
                                   child: Text(
-                                    '$_seniorName is Home', 
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87)
+                                    _locationLabel,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black87),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
+                              ),
                               Positioned(
                                 bottom: 16,
                                 right: 16,
@@ -274,11 +401,9 @@ class _CaregiverScreenState extends State<CaregiverScreen> {
                                   child: IconButton(
                                     icon: const Icon(Icons.my_location),
                                     onPressed: () {
-                                      if (_latestAlert != null) {
-                                        _mapController?.animateCamera(
-                                          CameraUpdate.newLatLngZoom(LatLng(_latestAlert!.latitude, _latestAlert!.longitude), 15),
-                                        );
-                                      }
+                                      _mapController?.animateCamera(
+                                        CameraUpdate.newLatLngZoom(_mapCenter, 15),
+                                      );
                                     },
                                   ),
                                 ),
@@ -344,7 +469,119 @@ class _CaregiverScreenState extends State<CaregiverScreen> {
                           ],
                         ),
                       ),
-                      // ... [other logs omitted for brevity]
+                    ],
+                  ),
+                ),
+
+                // ── Location History Section ──
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.history, color: Color(0xFF1975d2), size: 24),
+                              SizedBox(width: 8),
+                              Text('Location History', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                          Text(
+                            '${_locationHistory.length} entries',
+                            style: TextStyle(color: Colors.grey[500], fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      if (_locationHistory.isEmpty)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: const Column(
+                            children: [
+                              Icon(Icons.location_off, color: Colors.grey, size: 40),
+                              SizedBox(height: 8),
+                              Text('No location history yet', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        )
+                      else
+                        ...List.generate(
+                          _locationHistory.length > 10 ? 10 : _locationHistory.length,
+                          (index) {
+                            final loc = _locationHistory[index];
+                            final isFirst = index == 0;
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: isFirst ? const Color(0xFF1975d2).withOpacity(0.05) : Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isFirst ? const Color(0xFF1975d2).withOpacity(0.3) : Colors.grey.withOpacity(0.15),
+                                  width: isFirst ? 1.5 : 1,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 36,
+                                    height: 36,
+                                    decoration: BoxDecoration(
+                                      color: isFirst ? const Color(0xFF1975d2).withOpacity(0.15) : Colors.grey[100],
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      Icons.location_on,
+                                      size: 18,
+                                      color: isFirst ? const Color(0xFF1975d2) : Colors.grey,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          loc.address ?? '${loc.latitude.toStringAsFixed(4)}, ${loc.longitude.toStringAsFixed(4)}',
+                                          style: TextStyle(
+                                            fontWeight: isFirst ? FontWeight.bold : FontWeight.w500,
+                                            fontSize: 14,
+                                            color: Colors.black87,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          _formatTimestamp(loc.timestamp),
+                                          style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (isFirst)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: Colors.green[100],
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: const Text('Latest', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 10)),
+                                    ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      const SizedBox(height: 16),
                     ],
                   ),
                 ),
