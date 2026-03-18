@@ -162,12 +162,12 @@ class CaregiverDashboardScreen extends ConsumerWidget {
                 
                 return Column(
                   children: logs.take(3).map((log) {
-                    final isSOS = log.symptoms.contains("SOS");
+                    final isSOS = log.symptoms?.contains("SOS") ?? false;
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 12.0),
                       child: _buildLogCard(
                         isSOS ? "Emergency SOS" : "Health Update", 
-                        log.symptoms, 
+                        log.symptoms ?? "Health metrics logged", 
                         "Just Now", 
                         isSOS ? Icons.emergency : Icons.medical_services, 
                         isSOS ? const Color(0xFFD32F2F) : const Color(0xFF1976D2), 

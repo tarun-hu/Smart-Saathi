@@ -160,7 +160,7 @@ class _SeniorHomeScreenState extends ConsumerState<SeniorHomeScreen> {
                         return _buildTaskCard("Take Aspirin", "1 Pill with water after breakfast", "10:00 AM");
                       }
                       final nextMed = meds.first;
-                      return _buildTaskCard(nextMed.name, "${nextMed.dosage} - ${nextMed.timing}", nextMed.timing);
+                      return _buildTaskCard(nextMed.name, "${nextMed.dose} - ${nextMed.time}", nextMed.time);
                     },
                     loading: () => const Center(child: CircularProgressIndicator()),
                     error: (err, stack) => Text('Error: $err'),
