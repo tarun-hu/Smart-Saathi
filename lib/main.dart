@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'screens/login_screen.dart';
 
-import 'package:smart_saathi_app/screens/auth_gate.dart';
-
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+  await dotenv.load(fileName: ".env");
+
   await Supabase.initialize(
-    url: 'https://rdelkouuzjngdrnwlbwi.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJkZWxrb3V1empuZ2RybndsYndpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0MzEzODYsImV4cCI6MjA4ODAwNzM4Nn0.-kPHHweUW9Eq6ws1LYUTK5qHLjHgOycurTXNVObLzkc',
+    url: dotenv.env['SUPABASE_URL'] ?? '',
+    anonKey: dotenv.env['SUPABASE_ANON_KEY'] ?? '',
   );
 
-  runApp(const SmartSaathiApp());
+  runApp(const ProviderScope(child: SmartSaathiApp()));
 }
 
 class SmartSaathiApp extends StatelessWidget {
@@ -21,16 +23,15 @@ class SmartSaathiApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'SmartSaathi',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1975d2),
-          surface: const Color(0xFFf6f7f8),
-        ),
-        useMaterial3: true,
-        fontFamily: 'Lexend',
-      ),
-      home: const AuthGate(),
       debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primaryColor: const Color(0xFF2196F3),
+        scaffoldBackgroundColor: const Color(0xFFF6F8FA),
+        textTheme: const TextTheme(
+           bodyMedium: TextStyle(color: Color(0xFF0F2633)),
+        ),
+      ),
+      home: const LoginScreen(),
     );
   }
 }

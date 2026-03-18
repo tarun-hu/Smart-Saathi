@@ -1,72 +1,95 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:local_auth/local_auth.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../services/supabase_service.dart';
+import 'main_navigator.dart';
 
-class LoginScreen extends StatefulWidget {
+class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
-  final _seniorEmail = TextEditingController();
-  final _seniorPassword = TextEditingController();
-  final _caregiverEmail = TextEditingController();
-  final _caregiverPassword = TextEditingController();
-  
+class _LoginScreenState extends ConsumerState<LoginScreen> {
+  final LocalAuthentication auth = LocalAuthentication();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  bool _isCaregiver = false;
   bool _isLoading = false;
-  bool _isSignUp = false;
 
   @override
   void dispose() {
-    _seniorEmail.dispose();
-    _seniorPassword.dispose();
-    _caregiverEmail.dispose();
-    _caregiverPassword.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
-  Future<void> _handleAuth(String email, String password, String role) async {
-    if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all fields')));
-      return;
-    }
-    
-    setState(() => _isLoading = true);
-    
+  Future<void> _authenticate() async {
     try {
-      if (!_isSignUp) {
-        await Supabase.instance.client.auth.signInWithPassword(email: email.trim(), password: password);
-      } else {
-        final res = await Supabase.instance.client.auth.signUp(email: email.trim(), password: password);
-        if (res.user != null) {
-          await Supabase.instance.client.from('profiles').upsert({
-            'id': res.user!.id,
-            'role': role,
-          });
-
-          final profile = await Supabase.instance.client
-              .from('profiles')
-              .select('role')
-              .eq('id', res.user!.id)
-              .single();
-
-          if (profile['role'] != role) {
-            throw Exception('Failed to finish account setup. Please try again.');
-          }
-        }
+      bool canAuthenticate = false;
+      try {
+        final bool canAuthenticateWithBiometrics = await auth.canCheckBiometrics;
+        canAuthenticate = canAuthenticateWithBiometrics || await auth.isDeviceSupported();
+      } catch (e) {
+        canAuthenticate = false;
       }
-    } on AuthException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message), backgroundColor: Colors.red));
+
+      if (!canAuthenticate) {
+        if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Biometrics not supported here. Using default login.')));
+           Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const MainNavigator(role: 'senior')));
+        }
+        return;
+      }
+      final bool didAuthenticate = await auth.authenticate(
+        localizedReason: 'Please authenticate to access SmartSaathi',
+        options: const AuthenticationOptions(biometricOnly: true),
+      );
+      if (didAuthenticate && mounted) {
+        Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const MainNavigator(role: 'senior')));
       }
     } catch (e) {
-      if (_isSignUp) {
-        await Supabase.instance.client.auth.signOut();
-      }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const MainNavigator(role: 'senior')));
       }
+    }
+  }
+
+  Future<void> _login() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    if (email.isEmpty || password.isEmpty) return;
+    
+    setState(() => _isLoading = true);
+    try {
+      final supabase = ref.read(supabaseServiceProvider);
+      await supabase.signIn(email, password);
+      if (mounted) {
+        Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const MainNavigator(role: 'caregiver')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Login Error: $e')));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _signup() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    if (email.isEmpty || password.isEmpty) return;
+    
+    setState(() => _isLoading = true);
+    try {
+      final supabase = ref.read(supabaseServiceProvider);
+      await supabase.signUp(email, password);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Account created! Please check your email to verify, or login if verification is disabled.')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Signup Error: $e')));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -74,210 +97,64 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final actionText = _isSignUp ? 'Sign Up' : 'Login';
-    
     return Scaffold(
-      backgroundColor: const Color(0xFFf6f7f8),
-      appBar: AppBar(
-        title: const Row(
-          children: [
-            Icon(Icons.diversity_1, color: Color(0xFF1975d2)),
-            SizedBox(width: 8),
-            Text('SmartSaathi', style: TextStyle(color: Color(0xFF1975d2), fontWeight: FontWeight.bold)),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.help_outline),
-            onPressed: () {},
-          )
-        ],
-        backgroundColor: Colors.white,
-        elevation: 0,
-      ),
-      body: _isLoading 
-        ? const Center(child: CircularProgressIndicator())
-        : SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            const SizedBox(height: 10),
-            // Header Section
-            Text(
-              _isSignUp ? 'Create an Account' : 'Welcome Back',
-              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.black87),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _isSignUp ? 'Sign up to start connecting' : 'Choose your profile to continue',
-              style: const TextStyle(fontSize: 16, color: Colors.black54),
-            ),
-            const SizedBox(height: 30),
-
-            // Senior Card
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFF1975d2).withOpacity(0.2), width: 2),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1975d2).withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.elderly, color: Color(0xFF1975d2), size: 32),
-                      ),
-                      const SizedBox(width: 16),
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('I am a Senior', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                          Text('Quick & Easy Access', style: TextStyle(color: Colors.black54)),
-                        ],
-                      )
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  TextField(
-                    controller: _seniorEmail,
-                    decoration: InputDecoration(
-                      hintText: 'senior@email.com',
-                      filled: true,
-                      fillColor: Colors.grey[50],
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
-                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 40.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Icon(Icons.health_and_safety, size: 80, color: Color(0xFF2196F3)),
+              const SizedBox(height: 20),
+              const Text("SmartSaathi", textAlign: TextAlign.center, style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Color(0xFF003049))),
+              const Text("Healthcare Companion", textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: Colors.grey)),
+              const SizedBox(height: 50),
+              
+              if (!_isCaregiver) ...[
+                const Text("Welcome Back", textAlign: TextAlign.center, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 40),
+                GestureDetector(
+                  onTap: _authenticate,
+                  child: Container(
+                    height: 120,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0F8FF),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: const Color(0xFF2196F3), width: 4),
+                      boxShadow: [BoxShadow(color: Colors.blue.withAlpha(50), blurRadius: 20, spreadRadius: 5)],
                     ),
+                    child: const Icon(Icons.fingerprint, size: 80, color: Color(0xFF2196F3)),
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _seniorPassword,
-                    obscureText: true,
-                    decoration: InputDecoration(
-                      hintText: '••••••••',
-                      filled: true,
-                      fillColor: Colors.grey[50],
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
-                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: ElevatedButton(
-                      onPressed: () => _handleAuth(_seniorEmail.text, _seniorPassword.text, 'senior'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF1975d2),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: Text('Senior $actionText', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            
-            const SizedBox(height: 20),
-
-            // Caregiver Card
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.grey[200]!),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[100],
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.health_and_safety, color: Colors.black54, size: 32),
-                      ),
-                      const SizedBox(width: 16),
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('I am a Caregiver', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                          Text('Professional Portal', style: TextStyle(color: Colors.black54)),
-                        ],
-                      )
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  TextField(
-                    controller: _caregiverEmail,
-                    decoration: InputDecoration(
-                      hintText: 'caregiver@email.com',
-                      filled: true,
-                      fillColor: Colors.grey[50],
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
-                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _caregiverPassword,
-                    obscureText: true,
-                    decoration: InputDecoration(
-                      hintText: '••••••••',
-                      filled: true,
-                      fillColor: Colors.grey[50],
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
-                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: ElevatedButton(
-                      onPressed: () => _handleAuth(_caregiverEmail.text, _caregiverPassword.text, 'caregiver'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.grey[900],
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: Text('Caregiver $actionText', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            
-            const SizedBox(height: 24),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  _isSignUp = !_isSignUp;
-                });
-              },
-              child: Text(
-                _isSignUp ? 'Already have an account? Login' : 'Don\'t have an account? Sign Up',
-                style: const TextStyle(fontSize: 16, color: Color(0xFF1975d2), fontWeight: FontWeight.bold),
-              ),
-            ),
-            const SizedBox(height: 40),
-          ],
+                ),
+                const SizedBox(height: 20),
+                const Text("Tap Scanner to Login", textAlign: TextAlign.center, style: TextStyle(fontSize: 18, color: Colors.grey)),
+              ] else ...[
+                 const Text("Caregiver Access", textAlign: TextAlign.center, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                 const SizedBox(height: 40),
+                 TextField(controller: _emailController, decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder())),
+                 const SizedBox(height: 20),
+                 TextField(controller: _passwordController, obscureText: true, decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder())),
+                 const SizedBox(height: 20),
+                 if (_isLoading) const Center(child: CircularProgressIndicator()) else Row(
+                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                   children: [
+                     TextButton(onPressed: _signup, child: const Text("Create Account")),
+                     ElevatedButton(
+                       style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3), padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16)),
+                       onPressed: _login,
+                       child: const Text("Login", style: TextStyle(fontSize: 18, color: Colors.white)),
+                     ),
+                   ],
+                 ),
+              ],
+              const Spacer(),
+              TextButton(
+                onPressed: () { setState(() { _isCaregiver = !_isCaregiver; }); },
+                child: Text(_isCaregiver ? "Switch to Senior Login" : "I am a Caregiver", style: const TextStyle(fontSize: 16, color: Color(0xFFFF5722))),
+              )
+            ],
+          ),
         ),
       ),
     );
