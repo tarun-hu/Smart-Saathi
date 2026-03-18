@@ -8,36 +8,86 @@ class NlpService {
   Future<Map<String, String>> processIntent(String command) async {
     final lower = command.toLowerCase();
     
-    // Simple heuristic-based NLP imitating Edge Functions
+    // CALL FAMILY INTENT
+    if (lower.contains('call') || lower.contains('phone') || lower.contains('dial')) {
+      final words = lower.split(' ');
+      String entity = "";
+      if (words.length > 1) {
+         final idx = words.indexWhere((w) => w == 'call' || w == 'phone' || w == 'dial');
+         if (idx != -1 && idx + 1 < words.length) entity = words[idx + 1];
+      }
+      return {
+        'intent': 'CALL_FAMILY',
+        'entity': entity,
+        'response': 'I am calling $entity now.',
+      };
+    }
+    
+    // MEDICATION COMPLETION INTENT
+    if (lower.contains('took') || lower.contains('done') || lower.contains('kha li')) {
+       if (lower.contains('medicine') || lower.contains('dawai') || lower.contains('pill')) {
+         return {
+           'intent': 'MARK_MEDICATION_DONE',
+           'response': 'Great! I have marked your medicine as taken.',
+         };
+       }
+    }
+
+    // READ MEDICATIONS INTENT
+    if (lower.contains('what') || lower.contains('read') || lower.contains('tell')) {
+       if (lower.contains('medicine') || lower.contains('dawai') || lower.contains('meds')) {
+          return {
+            'intent': 'READ_MEDICATIONS',
+            'response': 'Let me check your upcoming tasks.',
+          };
+       }
+    }
+
+    // GENERAL MEDICATION REMINDER
     if (lower.contains('dawai') || lower.contains('medicine') || lower.contains('insulin')) {
       return {
         'intent': 'MEDICATION_REMINDER',
-        'response': 'Aapki dawai ka time ho gaya hai. Metformin 500mg le lijiye.',
+        'response': 'Aapki dawai ka time ho gaya hai. Check your upcoming tasks.',
       };
-    } else if (lower.contains('dard') || lower.contains('pain') || lower.contains('sugar') || lower.contains('bp')) {
+    } 
+    
+    // SYMPTOM LOGGING
+    else if (lower.contains('dard') || lower.contains('pain') || lower.contains('sugar') || lower.contains('bp') || lower.contains('ill')) {
       return {
         'intent': 'SYMPTOM_TRIAGE',
-        'response': 'Kripya aaram karein. Aapke symptoms record ho gaye hain, family ko bata diya gaya hai.',
+        'response': 'I have recorded your symptoms. Please rest, I have alerted your family.',
       };
-    } else if (lower.contains('doctor') || lower.contains('madad')) {
+    } 
+    
+    // EMERGENCY SOS
+    else if (lower.contains('doctor') || lower.contains('madad') || lower.contains('help') || lower.contains('emergency')) {
       return {
         'intent': 'SOS',
-        'response': 'Emergency alert bhej diya gaya hai. Koi aapki madad ke liye aa raha hai.',
+        'response': 'Emergency alert sent. Help is on the way.',
       };
-    } else if (lower.contains('paani') || lower.contains('water') || lower.contains('glass')) {
+    } 
+    
+    // HYDRATION
+    else if (lower.contains('paani') || lower.contains('water') || lower.contains('glass') || lower.contains('drank')) {
       return {
         'intent': 'HYDRATION',
-        'response': 'Maine ek glass paani add kar diya hai. Good job!',
+        'response': 'I logged one glass of water. Good job staying hydrated!',
       };
-    } else if (lower.contains('akela') || lower.contains('lonely') || lower.contains('baat') || lower.contains('gana')) {
+    } 
+    
+    // EMOTIONAL SUPPORT
+    else if (lower.contains('akela') || lower.contains('lonely') || lower.contains('baat') || lower.contains('gana')) {
       return {
         'intent': 'EMOTIONAL_SUPPORT',
         'response': 'Main yahan hoon aapke saath. Aap bilkul akele nahi hain.',
       };
-    } else {
+    } 
+    
+    // UNKNOWN
+    else {
       return {
         'intent': 'UNKNOWN',
-        'response': 'Mujhe samajh nahi aaya. Kripya dobara bolein.',
+        'response': 'I am sorry, I did not understand that. Kripya dobara bolein.',
       };
     }
   }

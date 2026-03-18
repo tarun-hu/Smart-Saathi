@@ -48,6 +48,8 @@ dependencies:
   http: ^1.2.0
   audioplayers: ^5.2.1
   local_auth: ^2.2.0
+  intl: ^0.20.2
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:

@@ -9,6 +9,7 @@ class CaregiverDashboardScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final healthLogsAsync = ref.watch(healthLogsStreamProvider);
+    final profileAsync = ref.watch(userProfileProvider);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF6F8FA),
@@ -125,7 +126,11 @@ class CaregiverDashboardScreen extends ConsumerWidget {
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                           decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withAlpha(20), blurRadius: 5)]),
-                          child: const Text("Mr. Gupta is Home", style: TextStyle(fontWeight: FontWeight.bold)),
+                          child: profileAsync.when(
+                            data: (p) => Text("${p?['full_name'] ?? 'Senior'} is Home", style: const TextStyle(fontWeight: FontWeight.bold)),
+                            loading: () => const Text("Fetching Location..."),
+                            error: (err, stack) => const Text("Location Found"),
+                          ),
                         ),
                       ),
                     ),
@@ -148,15 +153,9 @@ class CaregiverDashboardScreen extends ConsumerWidget {
             healthLogsAsync.when(
               data: (logs) {
                 if (logs.isEmpty) {
-                  // Fallback to mockup data if DB is empty
-                  return Column(
-                    children: [
-                      _buildLogCard("Metformin (500mg)", "Taken", "08:30 AM", Icons.medication, const Color(0xFF2E7D32), const Color(0xFFE8F5E9), true),
-                      const SizedBox(height: 12),
-                      _buildLogCard("Multivitamin", "Missed - Alert Sent", "12:00 PM", Icons.medical_services, const Color(0xFFD32F2F), const Color(0xFFFFEBEE), false),
-                      const SizedBox(height: 12),
-                      _buildLogCard("Blood Pressure", "Next Scheduled", "08:00 PM", Icons.alarm, const Color(0xFF1976D2), const Color(0xFFE3F2FD), false, isInfo: true),
-                    ],
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    child: Text("No health logs recorded yet.", style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
                   );
                 }
                 
@@ -188,9 +187,25 @@ class CaregiverDashboardScreen extends ConsumerWidget {
             // Urgent Alerts
             const Text("Urgent Alerts", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F2633))),
             const SizedBox(height: 12),
-            _buildAlertCard("SOS Button Pressed", "Triggered from Senior App • 2 mins ago", Icons.emergency, const Color(0xFFD32F2F), const Color(0xFFFFF0F0)),
-            const SizedBox(height: 12),
-            _buildAlertCard("Low Battery Alert", "Device at 15% • 15 mins ago", Icons.battery_alert, const Color(0xFFF57F17), const Color(0xFFFFFDE7)),
+            healthLogsAsync.when(
+              data: (logs) {
+                final sosLogs = logs.where((l) => l.symptoms?.contains("SOS") ?? false).take(2).toList();
+                if (sosLogs.isEmpty) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Text("No urgent alerts.", style: TextStyle(color: Colors.grey.shade500)),
+                  );
+                }
+                return Column(
+                  children: sosLogs.map((l) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _buildAlertCard("SOS Alert Triggered", "Emergency logged from Senior", Icons.emergency, const Color(0xFFD32F2F), const Color(0xFFFFF0F0))
+                  )).toList(),
+                );
+              },
+              loading: () => const CircularProgressIndicator(),
+              error: (err, stack) => const Text("Error loading alerts"),
+            ),
             
             const SizedBox(height: 40),
           ],

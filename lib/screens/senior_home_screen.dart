@@ -1,5 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/voice_service.dart';
 import '../services/nlp_service.dart';
 import '../services/supabase_service.dart';
@@ -14,6 +17,39 @@ class SeniorHomeScreen extends ConsumerStatefulWidget {
 class _SeniorHomeScreenState extends ConsumerState<SeniorHomeScreen> {
   String _helperText = "\"Hey SmartSaathi, remind me to take my medicine\"";
   bool _isListeningUI = false;
+  int _waterGlasses = 0;
+  Timer? _hydrationTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _hydrationTimer = Timer.periodic(const Duration(hours: 1), (timer) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("🕰️ Time to drink a glass of water, Senior!", style: TextStyle(fontSize: 18)),
+            backgroundColor: Color(0xFF1976D2),
+            duration: Duration(seconds: 10),
+          ),
+        );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _hydrationTimer?.cancel();
+    super.dispose();
+  }
+
+  void _addWaterGlass() {
+    if (_waterGlasses < 8) {
+      setState(() {
+        _waterGlasses++;
+      });
+      ref.read(supabaseServiceProvider).addHealthLog("Drank 1 glass of water (Total: $_waterGlasses/8)");
+    }
+  }
 
   void _onMicPressed() async {
     final voice = ref.read(voiceServiceProvider);
@@ -39,11 +75,56 @@ class _SeniorHomeScreenState extends ConsumerState<SeniorHomeScreen> {
             setState(() {
               _helperText = "(SmartSaathi) \${response['response']}";
             });
-            voice.speakHindi(response['response']!);
             
-            // Log intent to DB if it's SOS or Health
-            if (response['intent'] == 'sos') {
+            final intent = response['intent'];
+            final entity = response['entity'];
+            
+            // Handle logical branches
+            if (intent == 'CALL_FAMILY' && entity != null) {
+               final families = ref.read(familyMembersStreamProvider).value ?? [];
+               final match = families.where((f) => f.name.toLowerCase().contains(entity.toLowerCase())).toList();
+               if (match.isNotEmpty) {
+                  voice.speakHindi("Calling ${match.first.name}");
+                  final url = Uri.parse("tel:${match.first.phone}");
+                  if (await canLaunchUrl(url)) await launchUrl(url);
+               } else {
+                  voice.speakHindi("Sorry, I couldn't find $entity in your family list.");
+               }
+            } 
+            else if (intent == 'MARK_MEDICATION_DONE') {
+               final meds = ref.read(medicationsStreamProvider).value ?? [];
+               final pending = meds.where((m) => m.status != 'taken').toList();
+               if (pending.isNotEmpty) {
+                  await ref.read(supabaseServiceProvider).updateMedicationStatus(pending.first.id, 'taken');
+                  voice.speakHindi("I marked ${pending.first.name} as taken.");
+               } else {
+                  voice.speakHindi("You have no pending medications.");
+               }
+            }
+            else if (intent == 'READ_MEDICATIONS') {
+               final meds = ref.read(medicationsStreamProvider).value ?? [];
+               final pending = meds.where((m) => m.status != 'taken').toList();
+               if (pending.isEmpty) {
+                  voice.speakHindi("You have no upcoming medicines for today.");
+               } else {
+                  String speech = "You need to take ";
+                  for (var m in pending) {
+                    speech += "${m.name} at ${m.time}. ";
+                  }
+                  voice.speakHindi(speech);
+               }
+            }
+            else if (intent == 'sos') {
+               voice.speakHindi(response['response']!);
                await ref.read(supabaseServiceProvider).triggerSOS(28.61, 77.20);
+            } 
+            else if (intent == 'HYDRATION') {
+               voice.speakHindi(response['response']!);
+               _addWaterGlass();
+            } 
+            else {
+               voice.speakHindi(response['response'] ?? "I heard you.");
+               await ref.read(supabaseServiceProvider).addHealthLog(response['response'] ?? "Voice task logged");
             }
           }
         });
@@ -54,15 +135,58 @@ class _SeniorHomeScreenState extends ConsumerState<SeniorHomeScreen> {
   void _triggerEmergency() async {
      try {
        await ref.read(supabaseServiceProvider).triggerSOS(28.61, 77.20);
-       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Emergency SOS Sent to Family!")));
+       if (!mounted) return;
+       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Emergency SOS Sent to Family!")));
      } catch (e) {
-       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+       if (!mounted) return;
+       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
      }
+  }
+
+  void _showAddFamilyDialog() {
+    final nameController = TextEditingController();
+    final phoneController = TextEditingController();
+    final relationController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Add Family Member"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Name')),
+            TextField(controller: phoneController, decoration: const InputDecoration(labelText: 'Phone Number (e.g. +91...)'), keyboardType: TextInputType.phone),
+            TextField(controller: relationController, decoration: const InputDecoration(labelText: 'Relation (e.g. Son)')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          ElevatedButton(
+            onPressed: () async {
+               if (nameController.text.isNotEmpty && phoneController.text.isNotEmpty) {
+                 Navigator.pop(context);
+                 try {
+                   await ref.read(supabaseServiceProvider).addFamilyMember(nameController.text, phoneController.text, relationController.text);
+                   if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Family member added successfully!")));
+                 } catch (e) {
+                   if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+                 }
+               }
+            },
+            child: const Text("Add"),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final medicationsAsync = ref.watch(medicationsStreamProvider);
+    final familyMembersAsync = ref.watch(familyMembersStreamProvider);
+    final profileAsync = ref.watch(userProfileProvider);
+    final todayDate = DateFormat('EEEE, MMM d').format(DateTime.now());
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F8FA),
@@ -88,9 +212,13 @@ class _SeniorHomeScreenState extends ConsumerState<SeniorHomeScreen> {
                           const SizedBox(width: 12),
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
-                            children: const [
-                              Text("Hello, John", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0F2633))),
-                              Text("Friday, Oct 25", style: TextStyle(fontSize: 14, color: Color(0xFF3B5768))),
+                            children: [
+                              profileAsync.when(
+                                data: (profile) => Text("Hello, ${profile?['full_name'] ?? 'Senior'}", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0F2633))),
+                                loading: () => const Text("Loading...", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                                error: (err, stack) => const Text("Hello", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                              ),
+                              Text(todayDate, style: const TextStyle(fontSize: 14, color: Color(0xFF3B5768))),
                             ],
                           ),
                         ],
@@ -156,11 +284,15 @@ class _SeniorHomeScreenState extends ConsumerState<SeniorHomeScreen> {
                   
                   medicationsAsync.when(
                     data: (meds) {
-                      if (meds.isEmpty) {
-                        return _buildTaskCard("Take Aspirin", "1 Pill with water after breakfast", "10:00 AM");
+                      final pending = meds.where((m) => m.status != 'taken').toList();
+                      if (pending.isEmpty) {
+                        return Center(child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 20),
+                          child: Text("No upcoming tasks!", style: TextStyle(color: Colors.grey.shade600, fontSize: 16, fontWeight: FontWeight.w500)),
+                        ));
                       }
-                      final nextMed = meds.first;
-                      return _buildTaskCard(nextMed.name, "${nextMed.dose} - ${nextMed.time}", nextMed.time);
+                      final nextMed = pending.first;
+                      return _buildTaskCard(nextMed.id, nextMed.name, "${nextMed.dose} - ${nextMed.time}", nextMed.time);
                     },
                     loading: () => const Center(child: CircularProgressIndicator()),
                     error: (err, stack) => Text('Error: $err'),
@@ -188,18 +320,18 @@ class _SeniorHomeScreenState extends ConsumerState<SeniorHomeScreen> {
                       children: [
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: List.generate(4, (index) => Icon(Icons.local_drink, color: index < 3 ? const Color(0xFF1976D2) : Colors.blue.withAlpha(60), size: 32)),
+                          children: List.generate(4, (index) => Icon(Icons.local_drink, color: index < _waterGlasses ? const Color(0xFF1976D2) : Colors.blue.withAlpha(60), size: 32)),
                         ),
                         const SizedBox(height: 10),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: List.generate(4, (index) => Icon(Icons.local_drink, color: Colors.blue.withAlpha(60), size: 32)),
+                          children: List.generate(4, (index) => Icon(Icons.local_drink, color: (index + 4) < _waterGlasses ? const Color(0xFF1976D2) : Colors.blue.withAlpha(60), size: 32)),
                         ),
                         const SizedBox(height: 20),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text("3 of 8\nglasses\ndone", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                            Text("$_waterGlasses of 8\nglasses\ndone", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                             ElevatedButton.icon(
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF2196F3),
@@ -208,7 +340,7 @@ class _SeniorHomeScreenState extends ConsumerState<SeniorHomeScreen> {
                               ),
                               icon: const Icon(Icons.add, color: Colors.white),
                               label: const Text("ADD GLASS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, letterSpacing: 0.5)),
-                              onPressed: () {},
+                              onPressed: _addWaterGlass,
                             ),
                           ],
                         ),
@@ -219,14 +351,35 @@ class _SeniorHomeScreenState extends ConsumerState<SeniorHomeScreen> {
                   const SizedBox(height: 30),
 
                   // Family Section
-                  const Text("Family", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F2633))),
-                  const SizedBox(height: 12),
                   Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _buildFamilyCard("Sarah", "(Daughter)", "assets/avatar1.jpg"),
-                      const SizedBox(width: 15),
-                      _buildFamilyCard("David", "(Son)", "assets/avatar2.jpg"),
+                      const Text("Family", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F2633))),
+                      IconButton(
+                        icon: const Icon(Icons.add_circle, color: Color(0xFF2196F3), size: 28),
+                        onPressed: _showAddFamilyDialog,
+                        tooltip: "Add Family",
+                      ),
                     ],
+                  ),
+                  const SizedBox(height: 12),
+                  familyMembersAsync.when(
+                    data: (members) {
+                      if (members.isEmpty) {
+                        return Center(child: Text("No family members added yet.", style: TextStyle(color: Colors.grey.shade500)));
+                      }
+                      return SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: members.map((fam) => Padding(
+                            padding: const EdgeInsets.only(right: 15),
+                            child: _buildFamilyCard(fam.name, "(\${fam.relation})"),
+                          )).toList(),
+                        ),
+                      );
+                    },
+                    loading: () => const Center(child: CircularProgressIndicator()),
+                    error: (err, stack) => Text('Error: $err'),
                   ),
                   const SizedBox(height: 100), // padding for FAB
                 ],
@@ -262,7 +415,7 @@ class _SeniorHomeScreenState extends ConsumerState<SeniorHomeScreen> {
     );
   }
 
-  Widget _buildTaskCard(String name, String details, String time) {
+  Widget _buildTaskCard(String id, String name, String details, String time) {
      return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -289,7 +442,11 @@ class _SeniorHomeScreenState extends ConsumerState<SeniorHomeScreen> {
               ),
               icon: const Icon(Icons.check_circle, color: Colors.white),
               label: const Text("I TOOK IT", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18, letterSpacing: 1)),
-              onPressed: () {},
+              onPressed: () async {
+                 await ref.read(supabaseServiceProvider).updateMedicationStatus(id, 'taken');
+                 if (!mounted) return;
+                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Awesome! Marked $name as taken.')));
+              },
             ),
           ),
         ],
@@ -297,8 +454,9 @@ class _SeniorHomeScreenState extends ConsumerState<SeniorHomeScreen> {
     );
   }
 
-  Widget _buildFamilyCard(String name, String rel, String asset) {
-    return Expanded(
+  Widget _buildFamilyCard(String name, String rel) {
+    return SizedBox(
+      width: 120,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
