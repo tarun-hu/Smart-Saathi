@@ -7,88 +7,120 @@ final nlpServiceProvider = Provider<NlpService>((ref) {
 class NlpService {
   Future<Map<String, String>> processIntent(String command) async {
     final lower = command.toLowerCase();
-    
-    // CALL FAMILY INTENT
+
+    // ── CALL FAMILY ───────────────────────────
     if (lower.contains('call') || lower.contains('phone') || lower.contains('dial')) {
       final words = lower.split(' ');
       String entity = "";
-      if (words.length > 1) {
-         final idx = words.indexWhere((w) => w == 'call' || w == 'phone' || w == 'dial');
-         if (idx != -1 && idx + 1 < words.length) entity = words[idx + 1];
+      final idx = words.indexWhere((w) => w == 'call' || w == 'phone' || w == 'dial');
+      if (idx != -1 && idx + 1 < words.length) entity = words.sublist(idx + 1).join(' ');
+      return {'intent': 'CALL_FAMILY', 'entity': entity, 'response': 'Calling $entity now.'};
+    }
+
+    // ── MEDICATION DONE ──────────────────────
+    if (_matchAny(lower, ['took', 'done', 'kha li', 'le li', 'li hai'])) {
+      if (_matchAny(lower, ['medicine', 'dawai', 'pill', 'insulin', 'tablet', 'goli'])) {
+        return {'intent': 'MARK_MEDICATION_DONE', 'response': 'Great! Marking your medicine as taken.'};
       }
-      return {
-        'intent': 'CALL_FAMILY',
-        'entity': entity,
-        'response': 'I am calling $entity now.',
-      };
-    }
-    
-    // MEDICATION COMPLETION INTENT
-    if (lower.contains('took') || lower.contains('done') || lower.contains('kha li')) {
-       if (lower.contains('medicine') || lower.contains('dawai') || lower.contains('pill')) {
-         return {
-           'intent': 'MARK_MEDICATION_DONE',
-           'response': 'Great! I have marked your medicine as taken.',
-         };
-       }
     }
 
-    // READ MEDICATIONS INTENT
-    if (lower.contains('what') || lower.contains('read') || lower.contains('tell')) {
-       if (lower.contains('medicine') || lower.contains('dawai') || lower.contains('meds')) {
-          return {
-            'intent': 'READ_MEDICATIONS',
-            'response': 'Let me check your upcoming tasks.',
-          };
-       }
+    // ── READ MEDICATIONS ─────────────────────
+    if (_matchAny(lower, ['what', 'read', 'tell', 'batao', 'bata', 'konsi'])) {
+      if (_matchAny(lower, ['medicine', 'dawai', 'meds', 'tablet', 'goli', 'insulin'])) {
+        return {'intent': 'READ_MEDICATIONS', 'response': 'Let me check your medications.'};
+      }
     }
 
-    // GENERAL MEDICATION REMINDER
-    if (lower.contains('dawai') || lower.contains('medicine') || lower.contains('insulin')) {
-      return {
-        'intent': 'MEDICATION_REMINDER',
-        'response': 'Aapki dawai ka time ho gaya hai. Check your upcoming tasks.',
-      };
-    } 
-    
-    // SYMPTOM LOGGING
-    else if (lower.contains('dard') || lower.contains('pain') || lower.contains('sugar') || lower.contains('bp') || lower.contains('ill')) {
-      return {
-        'intent': 'SYMPTOM_TRIAGE',
-        'response': 'I have recorded your symptoms. Please rest, I have alerted your family.',
-      };
-    } 
-    
-    // EMERGENCY SOS
-    else if (lower.contains('doctor') || lower.contains('madad') || lower.contains('help') || lower.contains('emergency')) {
-      return {
-        'intent': 'SOS',
-        'response': 'Emergency alert sent. Help is on the way.',
-      };
-    } 
-    
-    // HYDRATION
-    else if (lower.contains('paani') || lower.contains('water') || lower.contains('glass') || lower.contains('drank')) {
-      return {
-        'intent': 'HYDRATION',
-        'response': 'I logged one glass of water. Good job staying hydrated!',
-      };
-    } 
-    
-    // EMOTIONAL SUPPORT
-    else if (lower.contains('akela') || lower.contains('lonely') || lower.contains('baat') || lower.contains('gana')) {
-      return {
-        'intent': 'EMOTIONAL_SUPPORT',
-        'response': 'Main yahan hoon aapke saath. Aap bilkul akele nahi hain.',
-      };
-    } 
-    
-    // UNKNOWN
-    else {
-      return {
-        'intent': 'UNKNOWN',
-        'response': 'I am sorry, I did not understand that. Kripya dobara bolein.',
-      };
+    // ── ADD MEDICATION ───────────────────────
+    if (_matchAny(lower, ['add', 'new', 'jod', 'likho', 'daalo'])) {
+      if (_matchAny(lower, ['medicine', 'dawai', 'tablet', 'goli'])) {
+        return {'intent': 'ADD_MEDICATION', 'response': 'Tell me the medicine name, dose and time.'};
+      }
     }
+
+    // ── GENERAL MEDICATION REMINDER ──────────
+    if (_matchAny(lower, ['dawai', 'medicine', 'insulin', 'tablet', 'goli'])) {
+      if (_matchAny(lower, ['time', 'kab', 'waqt', 'samay'])) {
+        return {'intent': 'MEDICATION_REMINDER', 'response': 'Checking your medicine schedule.'};
+      }
+    }
+
+    // ── VITALS INPUT (BP) ────────────────────
+    if (_matchAny(lower, ['bp', 'blood pressure', 'raktchap'])) {
+      final numbers = RegExp(r'\d+').allMatches(lower).map((m) => m.group(0)!).toList();
+      if (numbers.isNotEmpty) {
+        return {'intent': 'LOG_BP', 'entity': numbers.first, 'response': 'Recorded BP: ${numbers.first}. Stay healthy!'};
+      }
+      return {'intent': 'CHECK_BP', 'response': 'Please tell me your BP reading.'};
+    }
+
+    // ── VITALS INPUT (SUGAR) ─────────────────
+    if (_matchAny(lower, ['sugar', 'glucose', 'cheeni', 'diabetes', 'madhumeh'])) {
+      final numbers = RegExp(r'\d+').allMatches(lower).map((m) => m.group(0)!).toList();
+      if (numbers.isNotEmpty) {
+        return {'intent': 'LOG_SUGAR', 'entity': numbers.first, 'response': 'Sugar level ${numbers.first} recorded.'};
+      }
+      return {'intent': 'CHECK_SUGAR', 'response': 'Please tell me your sugar reading.'};
+    }
+
+    // ── VITALS INPUT (TEMPERATURE) ───────────
+    if (_matchAny(lower, ['temperature', 'bukhar', 'fever', 'taapman', 'temp'])) {
+      final numbers = RegExp(r'\d+\.?\d*').allMatches(lower).map((m) => m.group(0)!).toList();
+      if (numbers.isNotEmpty) {
+        return {'intent': 'LOG_TEMPERATURE', 'entity': numbers.first, 'response': 'Temperature ${numbers.first}° recorded.'};
+      }
+      return {'intent': 'CHECK_TEMPERATURE', 'response': 'Please tell me your temperature.'};
+    }
+
+    // ── SYMPTOM LOGGING ──────────────────────
+    if (_matchAny(lower, ['dard', 'pain', 'ill', 'sick', 'ache', 'dukhna', 'taklif', 'gas', 'pet', 'stomach', 'kamar', 'ghutna'])) {
+      return {'intent': 'SYMPTOM_TRIAGE', 'response': 'Symptoms recorded. Please rest, your family has been notified.'};
+    }
+
+    // ── EMERGENCY SOS ────────────────────────
+    if (_matchAny(lower, ['sos', 'emergency', 'madad', 'help', 'bachao', 'doctor bulao', 'ambulance'])) {
+      return {'intent': 'SOS', 'response': 'Emergency alert sent! Help is on the way.'};
+    }
+
+    // ── HYDRATION ────────────────────────────
+    if (_matchAny(lower, ['paani', 'water', 'glass', 'drank', 'piya', 'pi gaya', 'pi liya'])) {
+      return {'intent': 'HYDRATION', 'response': 'One glass of water logged. Keep hydrating!'};
+    }
+
+    // ── EMOTIONAL SUPPORT ────────────────────
+    if (_matchAny(lower, ['akela', 'lonely', 'baat', 'baat karo', 'sad', 'udaas', 'rona', 'dukhi'])) {
+      return {'intent': 'EMOTIONAL_SUPPORT', 'response': 'Main yahan hoon aapke saath. Aap akele nahi hain. 💛'};
+    }
+
+    // ── ENTERTAINMENT ────────────────────────
+    if (_matchAny(lower, ['gana', 'song', 'music', 'bhajan', 'prayer', 'prarthna'])) {
+      return {'intent': 'ENTERTAINMENT', 'response': 'Playing something soothing for you. 🎵'};
+    }
+
+    // ── WEATHER ──────────────────────────────
+    if (_matchAny(lower, ['mausam', 'weather', 'garmi', 'sardi', 'barish'])) {
+      return {'intent': 'WEATHER', 'response': 'The weather is comfortable today. Stay hydrated!'};
+    }
+
+    // ── TIME/DATE ────────────────────────────
+    if (_matchAny(lower, ['time', 'samay', 'kya baj', 'kitne baje'])) {
+      final now = DateTime.now();
+      final h = now.hour > 12 ? now.hour - 12 : now.hour;
+      final ampm = now.hour >= 12 ? 'PM' : 'AM';
+      return {'intent': 'TIME', 'response': 'Abhi $h:${now.minute.toString().padLeft(2, '0')} $ampm hai.'};
+    }
+
+    if (_matchAny(lower, ['date', 'tarikh', 'din', 'aaj'])) {
+      final now = DateTime.now();
+      final days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      return {'intent': 'DATE', 'response': 'Aaj ${days[now.weekday - 1]}, ${now.day}/${now.month}/${now.year} hai.'};
+    }
+
+    // ── UNKNOWN ──────────────────────────────
+    return {'intent': 'UNKNOWN', 'response': 'I heard you. Kripya dobara bolein.'};
+  }
+
+  bool _matchAny(String text, List<String> keywords) {
+    return keywords.any((k) => text.contains(k));
   }
 }

@@ -3,6 +3,7 @@ class FamilyMember {
   final String userId;
   final String name;
   final String phone;
+  final String? relation;
   final String avatar;
   final String role;
 
@@ -11,8 +12,9 @@ class FamilyMember {
     required this.userId,
     required this.name,
     required this.phone,
-    required this.avatar,
-    required this.role,
+    this.relation,
+    this.avatar = '',
+    this.role = 'member',
   });
 
   factory FamilyMember.fromJson(Map<String, dynamic> json) {
@@ -21,17 +23,18 @@ class FamilyMember {
       userId: json['user_id'] as String,
       name: json['name'] as String,
       phone: json['phone'] as String,
-      avatar: json['avatar_url'] ?? '',
-      role: json['role'] ?? 'member',
+      relation: json['relation'] as String?,
+      avatar: json['avatar_url'] as String? ?? '',
+      role: json['role'] as String? ?? 'member',
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'id': id,
       'user_id': userId,
       'name': name,
       'phone': phone,
+      'relation': relation,
       'avatar_url': avatar,
       'role': role,
     };

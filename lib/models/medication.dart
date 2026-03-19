@@ -5,6 +5,8 @@ class Medication {
   final String dose;
   final String time;
   final String status;
+  final String frequency;
+  final DateTime? takenAt;
 
   Medication({
     required this.id,
@@ -13,6 +15,8 @@ class Medication {
     required this.dose,
     required this.time,
     required this.status,
+    this.frequency = 'daily',
+    this.takenAt,
   });
 
   factory Medication.fromJson(Map<String, dynamic> json) {
@@ -22,18 +26,21 @@ class Medication {
       name: json['name'] as String,
       dose: json['dose'] as String,
       time: json['time'] as String,
-      status: json['status'] as String,
+      status: json['status'] as String? ?? 'pending',
+      frequency: json['frequency'] as String? ?? 'daily',
+      takenAt: json['taken_at'] != null ? DateTime.parse(json['taken_at'] as String) : null,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'id': id,
       'user_id': userId,
       'name': name,
       'dose': dose,
       'time': time,
       'status': status,
+      'frequency': frequency,
+      'taken_at': takenAt?.toIso8601String(),
     };
   }
 }
