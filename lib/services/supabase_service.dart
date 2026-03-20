@@ -1,103 +1,18 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/medication.dart';
-import '../models/health_log.dart';
-import '../models/family_member.dart';
+import '../models/nominee.dart';
+import '../models/hydration_log.dart';
+import '../models/wellbeing_log.dart';
 import '../models/sos_event.dart';
-import '../models/location_ping.dart';
-
-final supabaseProvider = Provider<SupabaseClient>((ref) {
-  return Supabase.instance.client;
-});
-
-final supabaseServiceProvider = Provider<SupabaseService>((ref) {
-  final client = ref.watch(supabaseProvider);
-  return SupabaseService(client);
-});
-
-// ──── PROFILE & ROLE PROVIDERS ─────────────────
-
-final userProfileProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
-  final client = ref.watch(supabaseProvider);
-  if (client.auth.currentUser == null) return null;
-  return await client
-      .from('profiles')
-      .select()
-      .eq('id', client.auth.currentUser!.id)
-      .maybeSingle();
-});
-
-final userRoleProvider = FutureProvider<String?>((ref) async {
-  final profile = await ref.watch(userProfileProvider.future);
-  return profile?['role'] as String?;
-});
-
-final linkedSeniorProfileProvider =
-    FutureProvider<Map<String, dynamic>?>((ref) async {
-  final service = ref.watch(supabaseServiceProvider);
-  return await service.getLinkedSeniorProfile();
-});
-
-// ──── DATA STREAM PROVIDERS ────────────────────
-
-final medicationsStreamProvider = StreamProvider<List<Medication>>((ref) {
-  return ref.watch(supabaseServiceProvider).getMedicationsStream();
-});
-
-final healthLogsStreamProvider = StreamProvider<List<HealthLog>>((ref) {
-  return ref.watch(supabaseServiceProvider).getHealthLogsStream();
-});
-
-final familyMembersStreamProvider = StreamProvider<List<FamilyMember>>((ref) {
-  return ref.watch(supabaseServiceProvider).getFamilyMembersStream();
-});
-
-final alertsStreamProvider = StreamProvider<List<SosEvent>>((ref) {
-  return ref.watch(supabaseServiceProvider).getAlertsStream();
-});
-
-final todayHydrationProvider = FutureProvider<int>((ref) async {
-  return ref.watch(supabaseServiceProvider).getTodayHydration();
-});
-
-final connectionStatusProvider =
-    FutureProvider<Map<String, dynamic>?>((ref) async {
-  return ref.watch(supabaseServiceProvider).getConnectionStatus();
-});
-
-// ──── SERVICE CLASS ────────────────────────────
 
 class SupabaseService {
   final SupabaseClient _client;
   SupabaseService(this._client);
 
-  String? get _userId => _client.auth.currentUser?.id;
+  static SupabaseService get instance =>
+      SupabaseService(Supabase.instance.client);
 
-  /// Returns the target user ID for data operations.
-  /// For seniors: returns own ID.
-  /// For caregivers: returns their linked senior's ID.
-  Future<String?> _getTargetId() async {
-    if (_userId == null) return null;
-    final profile =
-        await _client.from('profiles').select().eq('id', _userId!).maybeSingle();
-    if (profile == null) return _userId;
-
-    if (profile['role'] == 'caregiver') {
-      // First check linked_senior_id on profile
-      final linkedId = profile['linked_senior_id'] as String?;
-      if (linkedId != null) return linkedId;
-
-      // Fallback: check connections table
-      final conn = await _client
-          .from('connections')
-          .select()
-          .eq('caregiver_id', _userId!)
-          .eq('status', 'active')
-          .maybeSingle();
-      return conn?['senior_id'] as String?;
-    }
-    return _userId;
-  }
+  String? get userId => _client.auth.currentUser?.id;
 
   // ──── AUTH ─────────────────────────────────────
 
@@ -105,21 +20,14 @@ class SupabaseService {
     await _client.auth.signInWithPassword(email: email, password: password);
   }
 
-  Future<void> signUpWithProfile(
-      String email, String password, String fullName, String role) async {
+  Future<void> signUp(String email, String password, String fullName) async {
     final response =
         await _client.auth.signUp(email: email, password: password);
     if (response.user != null) {
-      final pairingCode = role == 'senior'
-          ? (DateTime.now().millisecondsSinceEpoch % 1000000)
-              .toString()
-              .padLeft(6, '0')
-          : null;
       await _client.from('profiles').insert({
         'id': response.user!.id,
         'full_name': fullName,
-        'role': role,
-        'pairing_code': pairingCode,
+        'role': 'senior',
       });
     }
   }
@@ -131,142 +39,92 @@ class SupabaseService {
   // ──── PROFILE ──────────────────────────────────
 
   Future<Map<String, dynamic>?> getProfile() async {
-    if (_userId == null) return null;
+    if (userId == null) return null;
     return await _client
         .from('profiles')
         .select()
-        .eq('id', _userId!)
+        .eq('id', userId!)
         .maybeSingle();
   }
 
   Future<void> updateProfile(Map<String, dynamic> updates) async {
-    if (_userId == null) return;
-    await _client.from('profiles').update(updates).eq('id', _userId!);
+    if (userId == null) return;
+    await _client.from('profiles').update(updates).eq('id', userId!);
   }
 
-  Future<Map<String, dynamic>?> getLinkedSeniorProfile() async {
-    final targetId = await _getTargetId();
-    if (targetId == null || targetId == _userId) return null;
-    return await _client
-        .from('profiles')
+  // ──── NOMINEES ─────────────────────────────────
+
+  Future<List<Nominee>> getNominees() async {
+    if (userId == null) return [];
+    final result = await _client
+        .from('nominees')
         .select()
-        .eq('id', targetId)
-        .maybeSingle();
+        .eq('senior_id', userId!)
+        .order('position');
+    return result.map<Nominee>((m) => Nominee.fromJson(m)).toList();
   }
 
-  // ──── PAIRING / CONNECTIONS ────────────────────
+  Future<void> addNominee(String name, String whatsappNumber, int position) async {
+    if (userId == null) return;
+    await _client.from('nominees').insert({
+      'senior_id': userId!,
+      'name': name,
+      'whatsapp_number': whatsappNumber,
+      'position': position,
+    });
+  }
 
-  Future<void> pairWithSenior(String code) async {
-    if (_userId == null) return;
+  Future<void> updateNominee(String id, String name, String whatsappNumber) async {
+    await _client.from('nominees').update({
+      'name': name,
+      'whatsapp_number': whatsappNumber,
+    }).eq('id', id);
+  }
 
-    // Find senior by pairing code
-    final senior = await _client
-        .from('profiles')
-        .select()
-        .eq('pairing_code', code)
-        .eq('role', 'senior')
-        .maybeSingle();
-    if (senior == null) {
-      throw Exception('Invalid pairing code or senior not found.');
-    }
+  Future<void> deleteNominee(String id) async {
+    await _client.from('nominees').delete().eq('id', id);
+  }
 
-    final seniorId = senior['id'] as String;
-
-    // Update linked_senior_id on caregiver profile
-    await _client
-        .from('profiles')
-        .update({'linked_senior_id': seniorId}).eq('id', _userId!);
-
-    // Create or update connection record
-    final existing = await _client
-        .from('connections')
-        .select()
-        .eq('caregiver_id', _userId!)
-        .eq('senior_id', seniorId)
-        .maybeSingle();
-
-    if (existing == null) {
-      await _client.from('connections').insert({
-        'senior_id': seniorId,
-        'caregiver_id': _userId,
-        'status': 'active',
+  Future<void> saveAllNominees(List<Map<String, String>> nominees) async {
+    if (userId == null) return;
+    for (int i = 0; i < nominees.length; i++) {
+      await _client.from('nominees').insert({
+        'senior_id': userId!,
+        'name': nominees[i]['name'],
+        'whatsapp_number': nominees[i]['whatsapp'],
+        'position': i + 1,
       });
-    } else {
-      await _client
-          .from('connections')
-          .update({'status': 'active'}).eq('id', existing['id']);
     }
-  }
-
-  Future<Map<String, dynamic>?> getConnectionStatus() async {
-    if (_userId == null) return null;
-    final profile = await getProfile();
-    if (profile == null) return null;
-
-    final role = profile['role'] as String?;
-    if (role == 'caregiver') {
-      final targetId = await _getTargetId();
-      if (targetId != null && targetId != _userId) {
-        final seniorProfile = await _client
-            .from('profiles')
-            .select()
-            .eq('id', targetId)
-            .maybeSingle();
-        return {
-          'connected': true,
-          'senior_name': seniorProfile?['full_name'] ?? 'Senior',
-          'senior_id': targetId,
-        };
-      }
-      return {'connected': false};
-    } else if (role == 'senior') {
-      // Check if any caregiver is connected
-      final conn = await _client
-          .from('connections')
-          .select()
-          .eq('senior_id', _userId!)
-          .eq('status', 'active')
-          .maybeSingle();
-      if (conn != null) {
-        final caregiverProfile = await _client
-            .from('profiles')
-            .select()
-            .eq('id', conn['caregiver_id'])
-            .maybeSingle();
-        return {
-          'connected': true,
-          'caregiver_name': caregiverProfile?['full_name'] ?? 'Caregiver',
-          'caregiver_id': conn['caregiver_id'],
-        };
-      }
-      return {'connected': false};
-    }
-    return null;
   }
 
   // ──── MEDICATIONS ──────────────────────────────
 
-  Stream<List<Medication>> getMedicationsStream() async* {
-    final targetId = await _getTargetId();
-    if (targetId == null) {
-      yield [];
-      return;
-    }
-    yield* _client
+  Stream<List<Medication>> getMedicationsStream() {
+    if (userId == null) return Stream.value([]);
+    return _client
         .from('medications')
         .stream(primaryKey: ['id'])
-        .eq('user_id', targetId)
+        .eq('user_id', userId!)
         .map((maps) => maps.map((m) => Medication.fromJson(m)).toList());
   }
 
-  Future<void> addMedication(String name, String dose, String time,
-      {String frequency = 'daily'}) async {
-    final targetId = await _getTargetId();
-    if (targetId == null) return;
+  Future<List<Medication>> getMedications() async {
+    if (userId == null) return [];
+    final result = await _client
+        .from('medications')
+        .select()
+        .eq('user_id', userId!)
+        .order('time');
+    return result.map<Medication>((m) => Medication.fromJson(m)).toList();
+  }
+
+  Future<void> addMedication(
+      String name, String dosage, String time, String frequency) async {
+    if (userId == null) return;
     await _client.from('medications').insert({
-      'user_id': targetId,
+      'user_id': userId!,
       'name': name,
-      'dose': dose,
+      'dosage': dosage,
       'time': time,
       'frequency': frequency,
       'status': 'pending',
@@ -275,7 +133,9 @@ class SupabaseService {
 
   Future<void> updateMedicationStatus(String id, String status) async {
     final update = <String, dynamic>{'status': status};
-    if (status == 'taken') update['taken_at'] = DateTime.now().toIso8601String();
+    if (status == 'taken') {
+      update['taken_at'] = DateTime.now().toIso8601String();
+    }
     await _client.from('medications').update(update).eq('id', id);
   }
 
@@ -283,204 +143,129 @@ class SupabaseService {
     await _client.from('medications').delete().eq('id', id);
   }
 
-  // ──── HEALTH LOGS ──────────────────────────────
-
-  Stream<List<HealthLog>> getHealthLogsStream() async* {
-    final targetId = await _getTargetId();
-    if (targetId == null) {
-      yield [];
-      return;
-    }
-    yield* _client
-        .from('health_logs')
-        .stream(primaryKey: ['id'])
-        .eq('user_id', targetId)
-        .order('timestamp', ascending: false)
-        .map((maps) => maps.map((m) => HealthLog.fromJson(m)).toList());
-  }
-
-  Future<void> addHealthLog(
-      {double? bp,
-      double? sugar,
-      double? temperature,
-      String? symptoms}) async {
-    if (_userId == null) return;
-    await _client.from('health_logs').insert({
-      'user_id': _userId,
-      'bp': bp,
-      'sugar': sugar,
-      'temperature': temperature,
-      'symptoms': symptoms,
-      'timestamp': DateTime.now().toIso8601String(),
-    });
-  }
-
   // ──── HYDRATION ────────────────────────────────
 
   Future<int> getTodayHydration() async {
-    final targetId = await _getTargetId();
-    if (targetId == null) return 0;
-    final today = DateTime.now().toIso8601String().substring(0, 10);
+    if (userId == null) return 0;
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
     final result = await _client
         .from('hydration_logs')
-        .select('glasses')
-        .eq('user_id', targetId)
-        .eq('date', today);
+        .select('amount')
+        .eq('user_id', userId!)
+        .gte('timestamp', startOfDay);
     int total = 0;
     for (final row in result) {
-      total += (row['glasses'] as int? ?? 1);
+      total += (row['amount'] as int? ?? 250);
     }
     return total;
   }
 
-  Future<void> addHydrationGlass() async {
-    if (_userId == null) return;
-    final today = DateTime.now().toIso8601String().substring(0, 10);
+  Future<List<HydrationLog>> getTodayHydrationLogs() async {
+    if (userId == null) return [];
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
+    final result = await _client
+        .from('hydration_logs')
+        .select()
+        .eq('user_id', userId!)
+        .gte('timestamp', startOfDay)
+        .order('timestamp', ascending: false);
+    return result.map<HydrationLog>((m) => HydrationLog.fromJson(m)).toList();
+  }
+
+  Future<void> addHydration(int amountMl) async {
+    if (userId == null) return;
     await _client.from('hydration_logs').insert({
-      'user_id': _userId,
-      'glasses': 1,
-      'date': today,
+      'user_id': userId!,
+      'amount': amountMl,
+      'timestamp': DateTime.now().toIso8601String(),
     });
   }
 
-  // ──── ALERTS (SOS) ─────────────────────────────
+  // ──── WELLBEING ────────────────────────────────
 
-  Future<void> triggerSOS(double lat, double lng, {String? message}) async {
-    if (_userId == null) return;
-    await _client.from('alerts').insert({
-      'senior_id': _userId,
-      'latitude': lat,
-      'longitude': lng,
-      'message': message ?? 'Emergency SOS',
-    });
-    // Also insert into sos_events for backward compat
-    await _client.from('sos_events').insert({
-      'user_id': _userId,
-      'latitude': lat,
-      'longitude': lng,
-      'message': message ?? 'Emergency SOS',
+  Future<void> addWellbeingLog(String mood, {String? symptoms, String? notes}) async {
+    if (userId == null) return;
+    await _client.from('wellbeing_logs').insert({
+      'user_id': userId!,
+      'mood': mood,
+      'symptoms': symptoms,
+      'notes': notes,
+      'timestamp': DateTime.now().toIso8601String(),
     });
   }
 
-  Stream<List<SosEvent>> getAlertsStream() async* {
-    final targetId = await _getTargetId();
-    if (targetId == null) {
-      yield [];
-      return;
-    }
-    yield* _client
-        .from('sos_events')
-        .stream(primaryKey: ['id'])
-        .eq('user_id', targetId)
-        .order('created_at', ascending: false)
-        .map((maps) => maps.map((m) => SosEvent.fromJson(m)).toList());
-  }
-
-  Future<void> resolveAlert(String alertId) async {
-    await _client.from('sos_events').update({
-      'is_resolved': true,
-      'responded_at': DateTime.now().toIso8601String(),
-    }).eq('id', alertId);
-    // Also resolve in alerts table if exists
-    try {
-      await _client.from('alerts').update({
-        'is_resolved': true,
-      }).eq('id', alertId);
-    } catch (_) {}
-  }
-
-  // ──── FAMILY ───────────────────────────────────
-
-  Stream<List<FamilyMember>> getFamilyMembersStream() async* {
-    final targetId = await _getTargetId();
-    if (targetId == null) {
-      yield [];
-      return;
-    }
-    yield* _client
-        .from('family_members')
-        .stream(primaryKey: ['id'])
-        .eq('user_id', targetId)
-        .map((maps) => maps.map((m) => FamilyMember.fromJson(m)).toList());
-  }
-
-  Future<void> addFamilyMember(
-      String name, String phone, String relation) async {
-    if (_userId == null) return;
-    await _client.from('family_members').insert({
-      'user_id': _userId,
-      'name': name,
-      'phone': phone,
-      'relation': relation,
-    });
-  }
-
-  Future<void> deleteFamilyMember(String id) async {
-    await _client.from('family_members').delete().eq('id', id);
-  }
-
-  // ──── LOCATION PINGS ──────────────────────────
-
-  Future<void> sendLocationPing(double lat, double lng,
-      {String? address}) async {
-    if (_userId == null) return;
-    await _client.from('location_pings').insert({
-      'senior_id': _userId,
-      'latitude': lat,
-      'longitude': lng,
-      'address': address,
-    });
-  }
-
-  Future<LocationPing?> getLatestSeniorLocation() async {
-    final targetId = await _getTargetId();
-    if (targetId == null) return null;
+  Future<List<WellbeingLog>> getWellbeingLogs({int limit = 30}) async {
+    if (userId == null) return [];
     final result = await _client
-        .from('location_pings')
+        .from('wellbeing_logs')
         .select()
-        .eq('senior_id', targetId)
-        .order('created_at', ascending: false)
-        .limit(1)
-        .maybeSingle();
-    if (result == null) return null;
-    return LocationPing.fromJson(result);
+        .eq('user_id', userId!)
+        .order('timestamp', ascending: false)
+        .limit(limit);
+    return result.map<WellbeingLog>((m) => WellbeingLog.fromJson(m)).toList();
   }
 
-  // ──── CAREGIVER SUMMARY HELPERS ────────────────
-
-  Future<int> getPendingMedsCount() async {
-    final targetId = await _getTargetId();
-    if (targetId == null) return 0;
+  Future<WellbeingLog?> getTodayWellbeing() async {
+    if (userId == null) return null;
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
     final result = await _client
-        .from('medications')
-        .select('id')
-        .eq('user_id', targetId)
-        .eq('status', 'pending');
-    return result.length;
-  }
-
-  Future<int> getActiveAlertsCount() async {
-    final targetId = await _getTargetId();
-    if (targetId == null) return 0;
-    final result = await _client
-        .from('sos_events')
-        .select('id')
-        .eq('user_id', targetId)
-        .eq('is_resolved', false);
-    return result.length;
-  }
-
-  Future<HealthLog?> getLatestHealthLog() async {
-    final targetId = await _getTargetId();
-    if (targetId == null) return null;
-    final result = await _client
-        .from('health_logs')
+        .from('wellbeing_logs')
         .select()
-        .eq('user_id', targetId)
+        .eq('user_id', userId!)
+        .gte('timestamp', startOfDay)
         .order('timestamp', ascending: false)
         .limit(1)
         .maybeSingle();
     if (result == null) return null;
-    return HealthLog.fromJson(result);
+    return WellbeingLog.fromJson(result);
+  }
+
+  // ──── SOS EVENTS ───────────────────────────────
+
+  Future<void> logSosEvent(double lat, double lng) async {
+    if (userId == null) return;
+    await _client.from('sos_events').insert({
+      'user_id': userId!,
+      'lat': lat,
+      'lng': lng,
+      'timestamp': DateTime.now().toIso8601String(),
+      'message_sent': true,
+    });
+  }
+
+  Future<List<SosEvent>> getSosHistory({int limit = 20}) async {
+    if (userId == null) return [];
+    final result = await _client
+        .from('sos_events')
+        .select()
+        .eq('user_id', userId!)
+        .order('timestamp', ascending: false)
+        .limit(limit);
+    return result.map<SosEvent>((m) => SosEvent.fromJson(m)).toList();
+  }
+
+  // ──── SUMMARY HELPERS ──────────────────────────
+
+  Future<int> getPendingMedsCount() async {
+    if (userId == null) return 0;
+    final result = await _client
+        .from('medications')
+        .select('id')
+        .eq('user_id', userId!)
+        .eq('status', 'pending');
+    return result.length;
+  }
+
+  Future<int> getTakenMedsCount() async {
+    if (userId == null) return 0;
+    final result = await _client
+        .from('medications')
+        .select('id')
+        .eq('user_id', userId!)
+        .eq('status', 'taken');
+    return result.length;
   }
 }

@@ -2,20 +2,20 @@ class Medication {
   final String id;
   final String userId;
   final String name;
-  final String dose;
-  final String time;
-  final String status;
-  final String frequency;
+  final String dosage;
+  final String time; // e.g. "08:00"
+  final String frequency; // daily, weekly, etc.
+  final String status; // pending, taken, skipped
   final DateTime? takenAt;
 
   Medication({
     required this.id,
     required this.userId,
     required this.name,
-    required this.dose,
+    required this.dosage,
     required this.time,
-    required this.status,
     this.frequency = 'daily',
+    this.status = 'pending',
     this.takenAt,
   });
 
@@ -24,11 +24,13 @@ class Medication {
       id: json['id'] as String,
       userId: json['user_id'] as String,
       name: json['name'] as String,
-      dose: json['dose'] as String,
+      dosage: (json['dosage'] ?? json['dose'] ?? '') as String,
       time: json['time'] as String,
-      status: json['status'] as String? ?? 'pending',
       frequency: json['frequency'] as String? ?? 'daily',
-      takenAt: json['taken_at'] != null ? DateTime.parse(json['taken_at'] as String) : null,
+      status: json['status'] as String? ?? 'pending',
+      takenAt: json['taken_at'] != null
+          ? DateTime.parse(json['taken_at'] as String)
+          : null,
     );
   }
 
@@ -36,10 +38,10 @@ class Medication {
     return {
       'user_id': userId,
       'name': name,
-      'dose': dose,
+      'dosage': dosage,
       'time': time,
-      'status': status,
       'frequency': frequency,
+      'status': status,
       'taken_at': takenAt?.toIso8601String(),
     };
   }
