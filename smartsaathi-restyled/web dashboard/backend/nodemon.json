@@ -1,0 +1,5 @@
+{
+  "watch": ["server.ts", "controllers", "routes", "db", "middlewares"],
+  "ignore": ["prisma/generated/**", "node_modules/**", "dist/**"],
+  "ext": "ts,js,json"
+}
