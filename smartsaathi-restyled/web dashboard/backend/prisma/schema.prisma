@@ -1,0 +1,260 @@
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+generator client {
+    provider = "prisma-client-js"
+}
+
+generator zod {
+    provider = "zod-prisma-types"
+}
+
+generator docs {
+  provider = "node node_modules/prisma-docs-generator"
+  output   = "./docs"
+}
+
+enum Role {
+    USER
+    ADMIN
+    CAREGIVER
+}
+
+enum Sex {
+    MALE
+    FEMALE
+    OTHER
+}
+
+enum ReminderType {
+    HYDRATION
+    MEDICATION
+}
+
+enum HealthStatus {
+    HEALTHY
+    NEUTRAL
+    RESTLESS
+    ILL
+    RECOVERING
+    CRITICAL
+}
+
+enum ReportType {
+    IOS
+    ANDROID
+    WEB
+    OTHER
+}
+
+enum NotificationType {
+    SOS
+    MISSED_MEDICATION
+    DEVICE_OFFLINE
+}
+
+enum AuditAction {
+    CREATE
+    UPDATE
+    DELETE
+    LOGIN
+    LOGOUT
+    PAIR
+    UNPAIR
+    VIEW
+}
+
+model User {
+    id          String     @id @default(uuid())
+    /// @zod.string.email({ message: "Invalid email format" })
+    email       String     @unique
+    username    String?    @unique
+    /// @zod.string.min(8, { message: "Password must be at least 8 characters" })
+    password    String
+    /// @zod.string.min(1, { message: "First name is required" })
+    firstName   String
+    lastName    String?
+    phoneNumber String?
+    role        Role
+    locations   Location[]
+
+    homeId Int?
+    workId Int?
+
+    home Location? @relation("HomeLocation", fields: [homeId], references: [id])
+    work Location? @relation("WorkLocation", fields: [workId], references: [id])
+
+    dependent CareRelation[] @relation("Caregiver")
+    caregiver CareRelation[] @relation("Dependent")
+
+    pairingTokens  PairingToken[]
+    medicalRecords MedicalRecord[]
+    reminders      Reminder[]
+    checkInNotes   CheckInNote[]
+
+    bugReports        BugReport[]
+    customReminders   CustomReminder[]
+    auditLogs         AuditLog[]
+    notifications     Notification[]
+    emergencyContacts EmergencyContact[]
+}
+
+model Location {
+    id        Int      @id @default(autoincrement())
+    latitude  Float
+    longitude Float
+    createdAt DateTime @default(now())
+
+    userId String
+    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    homeOf User[] @relation("HomeLocation")
+    workOf User[] @relation("WorkLocation")
+}
+
+model CareRelation {
+    id Int @id @default(autoincrement())
+
+    caregiverId String
+    userId      String
+
+    caregiver User @relation("Caregiver", fields: [caregiverId], references: [id])
+    user      User @relation("Dependent", fields: [userId], references: [id])
+
+    createdAt DateTime @default(now())
+
+    @@unique([caregiverId, userId])
+}
+
+model PairingToken {
+    id        String    @id @default(uuid())
+    token     String    @unique
+    createdAt DateTime  @default(now())
+    expiryAt  DateTime
+    usedAt    DateTime?
+
+    caregiverId String
+    caregiver   User   @relation(fields: [caregiverId], references: [id], onDelete: Cascade)
+
+    @@index([expiryAt])
+}
+
+model MedicalRecord {
+    id              String   @id @default(uuid())
+    patientId       String
+    patient         User     @relation(fields: [patientId], references: [id])
+    gender          Sex
+    dateOfBirth     DateTime
+    height          Float? // cm
+    weight          Float? // Kg
+    incidentHistory String?
+    medicalHistory  String?
+    geneticHistory  String?
+    allergies       String?
+    medications     String?
+
+    createdAt  DateTime @default(now())
+    modifiedAt DateTime @updatedAt
+}
+
+model Reminder {
+    id       String       @id @default(uuid())
+    userId   String
+    type     ReminderType
+    interval Int // minutes
+    disabled Boolean      @default(false)
+    lastSent DateTime?
+    nextAt   DateTime
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CheckInNote {
+    id        String       @id @default(uuid())
+    userId    String
+    status    HealthStatus
+    message   String
+    createdAt DateTime     @default(now())
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model BugReport {
+    id      String     @id @default(uuid())
+    userId  String
+    type    ReportType
+    title   String
+    message String
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CustomReminder {
+    id       String  @id @default(uuid())
+    title    String? @default("untitled reminder")
+    message  String
+    interval Int? // minutes
+
+    disabled Boolean   @default(false)
+    lastSent DateTime?
+    nextAt   DateTime
+
+    userId String
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+    id String @id @default(uuid())
+
+    actorId  String? // who performed action
+    targetId String? // entity affected
+    target   String // "User", "MedicalRecord", etc.
+
+    action  AuditAction
+    summary String // short human-readable message
+
+    metadata Json? // before/after, IP, device, etc.
+
+    createdAt DateTime @default(now())
+
+    actor User? @relation(fields: [actorId], references: [id])
+}
+
+model Notification {
+    id String @id @default(uuid())
+
+    userId  String
+    type    NotificationType
+    title   String
+    message String
+
+    readAt DateTime?
+    sentAt DateTime  @default(now())
+
+    metadata Json? // extra context (deviceId, reminderId, etc.)
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@index([userId])
+    @@index([type])
+}
+
+model EmergencyContact {
+    id String @id @default(uuid())
+
+    userId   String
+    name     String
+    phone    String
+    relation String? // wife, son, neighbor, etc.
+
+    priority Int @default(1) // call order
+
+    createdAt DateTime @default(now())
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@index([userId])
+}

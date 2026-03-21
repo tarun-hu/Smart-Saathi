@@ -1,0 +1,22 @@
+[
+  {
+    "id": 1,
+    "ques": "Is my data being sold?",
+    "ans": "No. we only collect essential data and no data is sold to third parties."
+  },
+  {
+    "id": 2,
+    "ques": "How does the pairing process work as a caregiver?",
+    "ans": "generate a pairing code from the dashboard, open the app on their phone and add the code. note that the code expires after 5 minutes."
+  },
+  {
+    "id": 3,
+    "ques": "Can i add manage multiple people at once?",
+    "ans": "yes."
+  },
+  {
+    "id": 4,
+    "ques": "Is my data secure?",
+    "ans": "yes all your data is secured."
+  }
+]
