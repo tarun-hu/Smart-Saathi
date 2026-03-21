@@ -1,138 +1,125 @@
+-- ============================================
+-- SmartSaathi v2.0 — Database Schema
+-- Seniors-only voice-first elderly care app
+-- ============================================
+
 -- 1. ENABLE UUIDs
-create extension if not exists "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 2. HELPER FUNCTION (bypasses RLS to prevent infinite recursion in policies)
-CREATE OR REPLACE FUNCTION public.get_linked_senior_id()
-RETURNS uuid
-LANGUAGE sql
-SECURITY DEFINER
-STABLE
-SET search_path = public
-AS $$
-  SELECT linked_senior_id FROM public.profiles WHERE id = auth.uid();
-$$;
-
--- 3. PROFILES TABLE
-create table public.profiles (
-  id uuid references auth.users not null primary key,
-  role text check (role in ('senior', 'caregiver')),
+-- 2. PROFILES TABLE (seniors only)
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id uuid REFERENCES auth.users NOT NULL PRIMARY KEY,
   full_name text,
-  pairing_code text unique,
-  linked_senior_id uuid references public.profiles(id),
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+  phone text,
+  role text DEFAULT 'senior',
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 4. HEALTH LOGS
-create table public.health_logs (
-  id uuid default uuid_generate_v4() primary key,
-  user_id uuid references public.profiles(id) not null,
-  bp numeric,
-  sugar numeric,
+-- 3. NOMINEES TABLE (3 per senior — for WhatsApp SOS)
+CREATE TABLE IF NOT EXISTS public.nominees (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  senior_id uuid REFERENCES public.profiles(id) NOT NULL,
+  name text NOT NULL,
+  whatsapp_number text NOT NULL,
+  position int NOT NULL CHECK (position BETWEEN 1 AND 3),
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+  UNIQUE(senior_id, position)
+);
+
+-- 4. MEDICATIONS TABLE
+CREATE TABLE IF NOT EXISTS public.medications (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES public.profiles(id) NOT NULL,
+  name text NOT NULL,
+  dosage text NOT NULL DEFAULT '1 tablet',
+  time text NOT NULL DEFAULT '08:00 AM',
+  frequency text NOT NULL DEFAULT 'daily',
+  status text DEFAULT 'pending',
+  taken_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 5. HYDRATION LOGS TABLE
+CREATE TABLE IF NOT EXISTS public.hydration_logs (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES public.profiles(id) NOT NULL,
+  amount int NOT NULL DEFAULT 250,
+  timestamp timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 6. WELLBEING LOGS TABLE
+CREATE TABLE IF NOT EXISTS public.wellbeing_logs (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES public.profiles(id) NOT NULL,
+  mood text NOT NULL DEFAULT 'okay',
   symptoms text,
-  timestamp timestamp with time zone default timezone('utc'::text, now()) not null
+  notes text,
+  timestamp timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 5. MEDICATIONS
-create table public.medications (
-  id uuid default uuid_generate_v4() primary key,
-  user_id uuid references public.profiles(id) not null,
-  name text not null,
-  dose text not null,
-  time text not null,
-  status text default 'pending'
+-- 7. SOS EVENTS TABLE (history of emergency alerts)
+CREATE TABLE IF NOT EXISTS public.sos_events (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES public.profiles(id) NOT NULL,
+  lat double precision NOT NULL DEFAULT 0,
+  lng double precision NOT NULL DEFAULT 0,
+  timestamp timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+  message_sent boolean DEFAULT false
 );
 
--- 6. VOICE LOGS
-create table public.voice_logs (
-  id uuid default uuid_generate_v4() primary key,
-  user_id uuid references public.profiles(id) not null,
-  command text not null,
-  intent text not null,
-  timestamp timestamp with time zone default timezone('utc'::text, now()) not null
-);
+-- ============================================
+-- ROW LEVEL SECURITY
+-- ============================================
 
--- 7. ALERTS
-create table public.alerts (
-  id uuid default gen_random_uuid() primary key,
-  senior_id uuid references public.profiles(id) not null,
-  latitude double precision,
-  longitude double precision,
-  message text,
-  is_resolved boolean default false,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
-
--- 8. CONNECTIONS
-create table public.connections (
-  id uuid default gen_random_uuid() primary key,
-  senior_id uuid references public.profiles(id) not null,
-  caregiver_id uuid references public.profiles(id) not null,
-  status text default 'pending' check (status in ('pending', 'active', 'rejected')),
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
-
--- 9. FAMILY MEMBERS
-create table public.family_members (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid references public.profiles(id) not null,
-  name text not null,
-  phone text not null,
-  relation text,
-  avatar_url text,
-  role text default 'member',
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
-
--- 10. ENABLE RLS ON ALL TABLES
-alter table public.profiles enable row level security;
-alter table public.health_logs enable row level security;
-alter table public.medications enable row level security;
-alter table public.voice_logs enable row level security;
-alter table public.alerts enable row level security;
-alter table public.connections enable row level security;
-alter table public.family_members enable row level security;
-
--- 11. RLS POLICIES (using get_linked_senior_id() to avoid recursion)
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.nominees ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.medications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hydration_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.wellbeing_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sos_events ENABLE ROW LEVEL SECURITY;
 
 -- Profiles
-create policy "Users can view own or linked profile" on public.profiles
-  for select using (auth.uid() = id OR id = public.get_linked_senior_id() OR auth.uid() = linked_senior_id);
-create policy "Users can insert own profile" on public.profiles for insert with check (auth.uid() = id);
-create policy "Users can update own profile" on public.profiles for update using (auth.uid() = id);
+CREATE POLICY "Users can view own profile" ON public.profiles
+  FOR SELECT USING (auth.uid() = id);
+CREATE POLICY "Users can insert own profile" ON public.profiles
+  FOR INSERT WITH CHECK (auth.uid() = id);
+CREATE POLICY "Users can update own profile" ON public.profiles
+  FOR UPDATE USING (auth.uid() = id);
 
--- Health Logs
-create policy "Seniors and Caregivers view logs" on public.health_logs
-  for select using (auth.uid() = user_id OR user_id = public.get_linked_senior_id());
-create policy "Insert health logs" on public.health_logs for insert with check (auth.uid() = user_id);
+-- Nominees
+CREATE POLICY "Users can view own nominees" ON public.nominees
+  FOR SELECT USING (auth.uid() = senior_id);
+CREATE POLICY "Users can insert own nominees" ON public.nominees
+  FOR INSERT WITH CHECK (auth.uid() = senior_id);
+CREATE POLICY "Users can update own nominees" ON public.nominees
+  FOR UPDATE USING (auth.uid() = senior_id);
+CREATE POLICY "Users can delete own nominees" ON public.nominees
+  FOR DELETE USING (auth.uid() = senior_id);
 
 -- Medications
-create policy "Seniors and Caregivers view meds" on public.medications
-  for select using (auth.uid() = user_id OR user_id = public.get_linked_senior_id());
-create policy "Caregivers insert meds" on public.medications
-  for insert with check (auth.uid() = user_id OR user_id = public.get_linked_senior_id());
-create policy "Users can update own medications" on public.medications
-  for update using (auth.uid() = user_id OR user_id = public.get_linked_senior_id());
+CREATE POLICY "Users can view own medications" ON public.medications
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own medications" ON public.medications
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own medications" ON public.medications
+  FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own medications" ON public.medications
+  FOR DELETE USING (auth.uid() = user_id);
 
--- Voice Logs
-create policy "Users can view own voice logs" on public.voice_logs for select using (auth.uid() = user_id);
-create policy "Users can insert own voice logs" on public.voice_logs for insert with check (auth.uid() = user_id);
+-- Hydration logs
+CREATE POLICY "Users can view own hydration" ON public.hydration_logs
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own hydration" ON public.hydration_logs
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
 
--- Alerts
-create policy "Seniors can view their own alerts" on public.alerts for select using (auth.uid() = senior_id);
-create policy "Caregivers can view alerts of connected seniors" on public.alerts for select using (
-  exists (select 1 from connections c where c.senior_id = alerts.senior_id and c.caregiver_id = auth.uid() and c.status = 'active')
-);
-create policy "Seniors can insert alerts" on public.alerts for insert with check (auth.uid() = senior_id);
-create policy "Seniors can update their own alerts" on public.alerts for update using (auth.uid() = senior_id);
+-- Wellbeing logs
+CREATE POLICY "Users can view own wellbeing" ON public.wellbeing_logs
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own wellbeing" ON public.wellbeing_logs
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
 
--- Connections
-create policy "Users can view their connections" on public.connections
-  for select using (auth.uid() = senior_id OR auth.uid() = caregiver_id);
-create policy "Caregivers can request connection" on public.connections for insert with check (auth.uid() = caregiver_id);
-create policy "Seniors can update connection status" on public.connections for update using (auth.uid() = senior_id);
-
--- Family Members
-create policy "Users can view own family members" on public.family_members for select using (auth.uid() = user_id);
-create policy "Users can insert family members" on public.family_members for insert with check (auth.uid() = user_id);
-create policy "Users can update own family members" on public.family_members for update using (auth.uid() = user_id);
-create policy "Users can delete own family members" on public.family_members for delete using (auth.uid() = user_id);
+-- SOS events
+CREATE POLICY "Users can view own sos events" ON public.sos_events
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own sos events" ON public.sos_events
+  FOR INSERT WITH CHECK (auth.uid() = user_id);

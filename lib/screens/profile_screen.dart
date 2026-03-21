@@ -1,226 +1,492 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../services/supabase_service.dart';
+import '../services/voice_service.dart';
+import '../models/nominee.dart';
+import 'package:go_router/go_router.dart';
 
-class ProfileScreen extends ConsumerStatefulWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
   @override
-  ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
+  State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends ConsumerState<ProfileScreen> {
-  final _pairingCodeCtrl = TextEditingController();
-  bool _isPairing = false;
+class _ProfileScreenState extends State<ProfileScreen> {
+  final _supabase = SupabaseService.instance;
+  final _voice = VoiceService();
+  String _name = '';
+  String _email = '';
+  List<Nominee> _nominees = [];
+  bool _isLoading = true;
 
-  Future<void> _pairWithSenior() async {
-    final code = _pairingCodeCtrl.text.trim();
-    if (code.isEmpty) return;
-    setState(() => _isPairing = true);
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  Future<void> _init() async {
+    await _voice.initialize();
+    await _loadData();
+  }
+
+  Future<void> _loadData() async {
     try {
-      await ref.read(supabaseServiceProvider).pairWithSenior(code);
-      ref.invalidate(userProfileProvider);
+      final profile = await _supabase.getProfile();
+      final nominees = await _supabase.getNominees();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('✅ Paired successfully!')),
-        );
-        _pairingCodeCtrl.clear();
+        setState(() {
+          _name = profile?['full_name'] ?? '';
+          _email = profile?['email'] ?? '';
+          _nominees = nominees;
+          _isLoading = false;
+        });
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-      }
-    } finally {
-      if (mounted) setState(() => _isPairing = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+          content: Text(msg),
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+    );
+  }
+
+  Future<void> _editNominee(Nominee nominee) async {
+    final nameC = TextEditingController(text: nominee.name);
+    final phoneC = TextEditingController(text: nominee.whatsappNumber);
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: EdgeInsets.fromLTRB(
+            24, 24, 24, MediaQuery.of(ctx).viewInsets.bottom + 24),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text('Edit Nominee #${nominee.position}',
+                style: GoogleFonts.poppins(
+                    fontSize: 20, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 20),
+            TextField(
+              controller: nameC,
+              style: GoogleFonts.poppins(fontSize: 16),
+              decoration: InputDecoration(
+                labelText: 'Name',
+                prefixIcon: const Icon(Icons.person),
+                filled: true,
+                fillColor: Colors.grey.shade100,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: phoneC,
+              keyboardType: TextInputType.phone,
+              style: GoogleFonts.poppins(fontSize: 16),
+              decoration: InputDecoration(
+                labelText: 'WhatsApp Number',
+                prefixIcon: const Icon(Icons.phone),
+                filled: true,
+                fillColor: Colors.grey.shade100,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              height: 54,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1A237E),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16)),
+                ),
+                onPressed: () async {
+                  if (nameC.text.trim().isEmpty || phoneC.text.trim().isEmpty) {
+                    return;
+                  }
+                  await _supabase.updateNominee(
+                      nominee.id, nameC.text.trim(), phoneC.text.trim());
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  await _loadData();
+                  _showSnack('Nominee updated ✅');
+                },
+                child: Text('Save Changes',
+                    style: GoogleFonts.poppins(
+                        fontSize: 17, fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _signOut() async {
-    await ref.read(supabaseServiceProvider).signOut();
-    if (mounted) context.go('/login');
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('Sign Out', style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
+        content: Text('Are you sure you want to sign out?',
+            style: GoogleFonts.poppins()),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancel', style: GoogleFonts.poppins()),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Text('Sign Out',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _supabase.signOut();
+      if (mounted) context.go('/login');
+    }
   }
 
   @override
   void dispose() {
-    _pairingCodeCtrl.dispose();
+    _voice.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final profileAsync = ref.watch(userProfileProvider);
-
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: const Color(0xFFF5F5FA),
       appBar: AppBar(
-        title: const Text('Profile', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24)),
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1A1A2E),
+        backgroundColor: Colors.transparent,
         elevation: 0,
+        title: Text('Profile',
+            style: GoogleFonts.poppins(
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF1A237E))),
       ),
-      body: profileAsync.when(
-        data: (profile) {
-          if (profile == null) return const Center(child: Text('No profile data.'));
-          final role = profile['role'] as String? ?? 'senior';
-          final name = profile['full_name'] as String? ?? 'User';
-          final code = profile['pairing_code'] as String?;
-          final linkedId = profile['linked_senior_id'] as String?;
-
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              children: [
-                // ── AVATAR + NAME ──
-                CircleAvatar(
-                  radius: 48,
-                  backgroundColor: const Color(0xFF2196F3).withAlpha(30),
-                  child: Text(
-                    name.isNotEmpty ? name[0].toUpperCase() : '?',
-                    style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: Color(0xFF2196F3)),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Text(name, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Color(0xFF1A1A2E))),
-                const SizedBox(height: 4),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: role == 'senior' ? const Color(0xFFFF5722).withAlpha(20) : const Color(0xFF2196F3).withAlpha(20),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    role == 'senior' ? '👴 Senior' : '🩺 Caregiver',
-                    style: TextStyle(
-                      fontSize: 15, fontWeight: FontWeight.bold,
-                      color: role == 'senior' ? const Color(0xFFFF5722) : const Color(0xFF2196F3),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 28),
-
-                // ── PAIRING CODE (Seniors) ──
-                if (role == 'senior' && code != null) ...[
-                  _sectionCard(
-                    title: 'Your Pairing Code',
-                    subtitle: 'Share this with your caregiver to connect',
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2196F3).withAlpha(10),
-                        borderRadius: BorderRadius.circular(14),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  // Profile card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF1A237E), Color(0xFF283593)],
                       ),
-                      child: Center(
-                        child: Text(
-                          code,
-                          style: const TextStyle(
-                            fontSize: 36, fontWeight: FontWeight.w900, letterSpacing: 8,
-                            color: Color(0xFF2196F3),
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF1A237E).withAlpha(40),
+                          blurRadius: 20,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white.withAlpha(25),
+                            border: Border.all(
+                                color: Colors.white.withAlpha(50), width: 2),
+                          ),
+                          child: Center(
+                            child: Text(
+                              _name.isNotEmpty
+                                  ? _name[0].toUpperCase()
+                                  : '?',
+                              style: GoogleFonts.poppins(
+                                fontSize: 36,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                            ),
                           ),
                         ),
+                        const SizedBox(height: 14),
+                        Text(_name,
+                            style: GoogleFonts.poppins(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white)),
+                        const SizedBox(height: 4),
+                        Text(_email,
+                            style: GoogleFonts.poppins(
+                                fontSize: 14,
+                                color: Colors.white.withAlpha(180))),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Language toggle
+                  _settingsCard(
+                    icon: Icons.language_rounded,
+                    title: 'Language',
+                    subtitle:
+                        _voice.isHindi ? 'हिंदी' : 'English',
+                    trailing: Switch(
+                      value: _voice.isHindi,
+                      onChanged: (v) async {
+                        await _voice.toggleLanguage();
+                        setState(() {});
+                        _voice.speak(_voice.isHindi
+                            ? 'भाषा हिंदी में बदल गई'
+                            : 'Language changed to English');
+                      },
+                      activeThumbColor: const Color(0xFF1A237E),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Nominees section
+                  Row(
+                    children: [
+                      Text('Family Nominees',
+                          style: GoogleFonts.poppins(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF1A1A2E))),
+                      const Spacer(),
+                      Text('${_nominees.length}/3',
+                          style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              color: Colors.grey.shade500,
+                              fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (_nominees.isEmpty)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade50,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: Colors.amber.shade200),
+                      ),
+                      child: Column(
+                        children: [
+                          const Icon(Icons.warning_rounded,
+                              color: Colors.amber, size: 36),
+                          const SizedBox(height: 8),
+                          Text('No nominees added!',
+                              style: GoogleFonts.poppins(
+                                  fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 4),
+                          Text('Add nominees to enable SOS alerts',
+                              style: GoogleFonts.poppins(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade600)),
+                          const SizedBox(height: 12),
+                          ElevatedButton(
+                            onPressed: () => context.go('/nominees'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFFF6F00),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: const Text('Add Nominees'),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    ..._nominees.map(_nomineeCard),
+
+                  const SizedBox(height: 24),
+
+                  // Sign out
+                  SizedBox(
+                    width: double.infinity,
+                    height: 54,
+                    child: OutlinedButton.icon(
+                      onPressed: _signOut,
+                      icon: const Icon(Icons.logout, color: Colors.red),
+                      label: Text('Sign Out',
+                          style: GoogleFonts.poppins(
+                              color: Colors.red,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 16)),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.red),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18)),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 60),
                 ],
+              ),
+            ),
+    );
+  }
 
-                // ── PAIR WITH SENIOR (Caregivers) ──
-                if (role == 'caregiver') ...[
-                  _sectionCard(
-                    title: linkedId != null ? 'Connected ✅' : 'Connect to Senior',
-                    subtitle: linkedId != null ? 'You are paired with a senior' : 'Enter senior\'s 6-digit code',
-                    child: linkedId == null
-                        ? Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _pairingCodeCtrl,
-                                  keyboardType: TextInputType.number,
-                                  style: const TextStyle(fontSize: 20, letterSpacing: 4),
-                                  decoration: InputDecoration(
-                                    hintText: '000000',
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              SizedBox(
-                                height: 56,
-                                child: ElevatedButton(
-                                  onPressed: _isPairing ? null : _pairWithSenior,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF2196F3),
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                    minimumSize: const Size(80, 56),
-                                  ),
-                                  child: _isPairing
-                                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                      : const Text('Pair', style: TextStyle(fontWeight: FontWeight.bold)),
-                                ),
-                              ),
-                            ],
-                          )
-                        : Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF4CAF50).withAlpha(15),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Row(
-                              children: [
-                                Icon(Icons.check_circle, color: Color(0xFF4CAF50), size: 24),
-                                SizedBox(width: 10),
-                                Text('Senior is linked', style: TextStyle(fontSize: 16, color: Color(0xFF4CAF50))),
-                              ],
-                            ),
-                          ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-
-                // ── SIGN OUT ──
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: OutlinedButton.icon(
-                    onPressed: _signOut,
-                    icon: const Icon(Icons.logout, color: Color(0xFFF44336)),
-                    label: const Text('Sign Out', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFFF44336))),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFFF44336)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 80),
+  Widget _settingsCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    Widget? trailing,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withAlpha(6),
+              blurRadius: 10,
+              offset: const Offset(0, 4)),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A237E).withAlpha(15),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: const Color(0xFF1A237E), size: 24),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: GoogleFonts.poppins(
+                        fontSize: 16, fontWeight: FontWeight.w700)),
+                Text(subtitle,
+                    style: GoogleFonts.poppins(
+                        fontSize: 13, color: Colors.grey.shade500)),
               ],
             ),
-          );
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+          ),
+          ?trailing,
+        ],
       ),
     );
   }
 
-  Widget _sectionCard({required String title, required String subtitle, required Widget child}) {
+  Widget _nomineeCard(Nominee nominee) {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withAlpha(8), blurRadius: 8, offset: const Offset(0, 2))],
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withAlpha(6),
+              blurRadius: 10,
+              offset: const Offset(0, 4)),
+        ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A1A2E))),
-          const SizedBox(height: 4),
-          Text(subtitle, style: TextStyle(fontSize: 14, color: Colors.grey.shade500)),
-          const SizedBox(height: 14),
-          child,
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: const Color(0xFF2E7D32).withAlpha(15),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                '${nominee.position}',
+                style: GoogleFonts.poppins(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: const Color(0xFF2E7D32),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(nominee.name,
+                    style: GoogleFonts.poppins(
+                        fontSize: 16, fontWeight: FontWeight.w700)),
+                Row(
+                  children: [
+                    Icon(Icons.phone, size: 14, color: Colors.grey.shade400),
+                    const SizedBox(width: 4),
+                    Text(nominee.whatsappNumber,
+                        style: GoogleFonts.poppins(
+                            fontSize: 13, color: Colors.grey.shade500)),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          GestureDetector(
+            onTap: () => _editNominee(nominee),
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A237E).withAlpha(10),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.edit,
+                  size: 18, color: Color(0xFF1A237E)),
+            ),
+          ),
         ],
       ),
     );

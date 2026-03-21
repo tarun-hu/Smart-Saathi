@@ -1,9 +1,0 @@
-import React from 'react'
-
-const DashBoard = () => {
-    return (
-        <div className="mx-30 mt-12 mb-30 max-h-screen relative">DashBoard</div>
-    )
-}
-
-export default DashBoard
