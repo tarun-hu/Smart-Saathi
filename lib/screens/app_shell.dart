@@ -9,7 +9,7 @@ class AppShell extends StatelessWidget {
   int _currentIndex(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
     if (location.startsWith('/meds')) return 1;
-    if (location.startsWith('/hydration')) return 2;
+    if (location.startsWith('/facilities')) return 2;
     if (location.startsWith('/wellbeing')) return 3;
     if (location.startsWith('/profile')) return 4;
     return 0;
@@ -40,7 +40,7 @@ class AppShell extends StatelessWidget {
               children: [
                 _navItem(context, 0, idx, Icons.home_rounded, 'Home', '/home'),
                 _navItem(context, 1, idx, Icons.medication_rounded, 'Meds', '/meds'),
-                _navItem(context, 2, idx, Icons.water_drop_rounded, 'Water', '/hydration'),
+                _navItem(context, 2, idx, Icons.local_hospital_rounded, 'Nearby', '/facilities'),
                 _navItem(context, 3, idx, Icons.mood_rounded, 'Mood', '/wellbeing'),
                 _navItem(context, 4, idx, Icons.person_rounded, 'Profile', '/profile'),
               ],
