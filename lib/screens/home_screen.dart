@@ -65,15 +65,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     await _ai.initialize();
     await _loadData();
 
-    // Start wake word listening
-    _voice.startWakeWordListening((command) {
-      if (command.isNotEmpty) {
-        _processCommand(command);
-      } else {
-        // Wake word detected but no command — enter voice mode
-        _startVoice();
-      }
-    });
+    // The wake word listening loop has been removed 
+    // to prevent the continuous uncomfortable Android system beep.
+    // Users will tap the Voice Hub button instead.
 
     // Check for app updates
     _checkForUpdates();
@@ -111,21 +105,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
-  void _startVoice() async {
+  Future<void> _startVoice() async {
     if (_voice.isListening && _isVoiceActive) {
       _voice.stopListening();
       setState(() {
         _isVoiceActive = false;
         _voiceStatus = '';
       });
-      // Resume wake word mode
-      _voice.startWakeWordListening((command) {
-        if (command.isNotEmpty) {
-          _processCommand(command);
-        } else {
-          _startVoice();
-        }
-      });
+      // Resume wake word mode (only if the user intends it, but we removed loop to stop beep)
+      // _voice.startWakeWordListening((command) async { ... });
       return;
     }
 
@@ -237,15 +225,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     await _loadData();
     setState(() => _voiceStatus = '');
-
-    // Resume wake word listening
-    _voice.startWakeWordListening((command) {
-      if (command.isNotEmpty) {
-        _processCommand(command);
-      } else {
-        _startVoice();
-      }
-    });
   }
 
   Future<void> _triggerSos() async {

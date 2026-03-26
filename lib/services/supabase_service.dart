@@ -160,13 +160,18 @@ class SupabaseService {
 
   Future<int> getTodayHydration() async {
     if (userId == null) return 0;
+    
     final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
+    // Start of local day, converted to UTC for database comparison
+    final startOfDayLocal = DateTime(now.year, now.month, now.day);
+    final startOfDayUtc = startOfDayLocal.toUtc().toIso8601String();
+    
     final result = await _client
         .from('hydration_logs')
         .select('amount')
         .eq('user_id', userId!)
-        .gte('timestamp', startOfDay);
+        .gte('timestamp', startOfDayUtc);
+        
     int total = 0;
     for (final row in result) {
       total += (row['amount'] as int? ?? 250);
@@ -176,14 +181,18 @@ class SupabaseService {
 
   Future<List<HydrationLog>> getTodayHydrationLogs() async {
     if (userId == null) return [];
+    
     final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
+    final startOfDayLocal = DateTime(now.year, now.month, now.day);
+    final startOfDayUtc = startOfDayLocal.toUtc().toIso8601String();
+    
     final result = await _client
         .from('hydration_logs')
         .select()
         .eq('user_id', userId!)
-        .gte('timestamp', startOfDay)
+        .gte('timestamp', startOfDayUtc)
         .order('timestamp', ascending: false);
+        
     return result.map<HydrationLog>((m) => HydrationLog.fromJson(m)).toList();
   }
 
@@ -192,7 +201,7 @@ class SupabaseService {
     await _client.from('hydration_logs').insert({
       'user_id': userId!,
       'amount': amountMl,
-      'timestamp': DateTime.now().toIso8601String(),
+      'timestamp': DateTime.now().toUtc().toIso8601String(),
     });
   }
 
