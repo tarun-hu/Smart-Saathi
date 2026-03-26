@@ -43,3 +43,10 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Sensitive files — NEVER commit API keys
+.env
+
+# Build outputs
+*.apk
+*.aab

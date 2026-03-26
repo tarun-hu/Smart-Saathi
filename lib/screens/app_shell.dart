@@ -41,7 +41,7 @@ class AppShell extends StatelessWidget {
                 _navItem(context, 0, idx, Icons.home_rounded, 'Home', '/home'),
                 _navItem(context, 1, idx, Icons.medication_rounded, 'Meds', '/meds'),
                 _navItem(context, 2, idx, Icons.local_hospital_rounded, 'Nearby', '/facilities'),
-                _navItem(context, 3, idx, Icons.mood_rounded, 'Mood', '/wellbeing'),
+                _navItem(context, 3, idx, Icons.health_and_safety_rounded, 'Health', '/wellbeing'),
                 _navItem(context, 4, idx, Icons.person_rounded, 'Profile', '/profile'),
               ],
             ),

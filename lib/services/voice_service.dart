@@ -10,14 +10,19 @@ class VoiceService extends ChangeNotifier {
   bool _isInitialized = false;
   bool _isListening = false;
   bool _isSpeaking = false;
+  bool _isWakeWordMode = false;
   String _lastRecognized = '';
-  String _currentLocale = 'en-IN'; // Default English-India
+  String _currentLocale = 'en-IN';
 
   bool get isListening => _isListening;
   bool get isSpeaking => _isSpeaking;
+  bool get isWakeWordMode => _isWakeWordMode;
   String get lastRecognized => _lastRecognized;
   String get currentLocale => _currentLocale;
   bool get isHindi => _currentLocale == 'hi-IN';
+  bool get isInitialized => _isInitialized;
+
+  Function(String)? _onWakeWordDetected;
 
   Future<void> initialize() async {
     if (_isInitialized) return;
@@ -27,26 +32,43 @@ class VoiceService extends ChangeNotifier {
         debugPrint('Speech error: ${error.errorMsg}');
         _isListening = false;
         notifyListeners();
+        // Auto-restart wake word listening after error
+        if (_isWakeWordMode) {
+          Future.delayed(const Duration(seconds: 1), () {
+            _startWakeWordListeningInternal();
+          });
+        }
       },
       onStatus: (status) {
         if (status == 'notListening' || status == 'done') {
           _isListening = false;
           notifyListeners();
+          // Auto-restart wake word mode if active
+          if (_isWakeWordMode && !_isSpeaking) {
+            Future.delayed(const Duration(milliseconds: 500), () {
+              _startWakeWordListeningInternal();
+            });
+          }
         }
       },
     );
 
     await _tts.setLanguage(_currentLocale);
-    await _tts.setSpeechRate(0.45); // Slower for seniors
+    await _tts.setSpeechRate(0.45);
     await _tts.setVolume(1.0);
     await _tts.setPitch(1.0);
 
     _tts.setCompletionHandler(() {
       _isSpeaking = false;
       notifyListeners();
+      // Resume wake word listening after speaking
+      if (_isWakeWordMode) {
+        Future.delayed(const Duration(milliseconds: 500), () {
+          _startWakeWordListeningInternal();
+        });
+      }
     });
 
-    // Load user language preference
     final prefs = await SharedPreferences.getInstance();
     _currentLocale = prefs.getString('language') ?? 'en-IN';
     await _tts.setLanguage(_currentLocale);
@@ -65,8 +87,14 @@ class VoiceService extends ChangeNotifier {
     await setLanguage(newLocale);
   }
 
+  // ──── REGULAR LISTENING ────────────────────────
+
   void startListening(Function(String) onResult, {Function(String)? onPartial}) {
     if (!_isInitialized || _isListening) return;
+
+    // Temporarily disable wake word mode during active listening
+    final wasWakeMode = _isWakeWordMode;
+    _isWakeWordMode = false;
 
     _speech.listen(
       onResult: (result) {
@@ -74,6 +102,10 @@ class VoiceService extends ChangeNotifier {
         notifyListeners();
         if (result.finalResult) {
           onResult(result.recognizedWords);
+          // Restore wake word mode
+          if (wasWakeMode) {
+            _isWakeWordMode = true;
+          }
         } else {
           onPartial?.call(result.recognizedWords);
         }
@@ -98,8 +130,84 @@ class VoiceService extends ChangeNotifier {
     }
   }
 
+  // ──── WAKE WORD DETECTION ──────────────────────
+
+  void startWakeWordListening(Function(String) onWakeWordDetected) {
+    _isWakeWordMode = true;
+    _onWakeWordDetected = onWakeWordDetected;
+    _startWakeWordListeningInternal();
+  }
+
+  void stopWakeWordListening() {
+    _isWakeWordMode = false;
+    _onWakeWordDetected = null;
+    if (_isListening) {
+      _speech.stop();
+      _isListening = false;
+    }
+    notifyListeners();
+  }
+
+  void _startWakeWordListeningInternal() {
+    if (!_isInitialized || !_isWakeWordMode || _isListening || _isSpeaking) return;
+
+    _speech.listen(
+      onResult: (result) {
+        final text = result.recognizedWords.toLowerCase().trim();
+        _lastRecognized = text;
+        notifyListeners();
+
+        if (result.finalResult) {
+          // Check for wake word
+          if (_containsWakeWord(text)) {
+            // Extract the command after the wake word
+            String command = _extractCommand(text);
+            _onWakeWordDetected?.call(command);
+          }
+        }
+      },
+      localeId: _currentLocale,
+      listenFor: const Duration(seconds: 10),
+      listenOptions: stt.SpeechListenOptions(
+        listenMode: stt.ListenMode.dictation,
+        cancelOnError: false,
+        partialResults: true,
+      ),
+    );
+    _isListening = true;
+    notifyListeners();
+  }
+
+  bool _containsWakeWord(String text) {
+    final wakeWords = [
+      'hey saathi', 'he saathi', 'hey sathi', 'he sathi',
+      'a saathi', 'saathi', 'sathi',
+      'हे साथी', 'ऐ साथी', 'साथी',
+    ];
+    return wakeWords.any((w) => text.contains(w));
+  }
+
+  String _extractCommand(String text) {
+    final wakeWords = [
+      'hey saathi', 'he saathi', 'hey sathi', 'he sathi',
+      'a saathi', 'हे साथी', 'ऐ साथी',
+    ];
+    String command = text;
+    for (final w in wakeWords) {
+      command = command.replaceFirst(w, '').trim();
+    }
+    return command;
+  }
+
+  // ──── TTS ──────────────────────────────────────
+
   Future<void> speak(String text) async {
     if (text.isEmpty) return;
+    // Stop listening while speaking
+    if (_isListening) {
+      _speech.stop();
+      _isListening = false;
+    }
     _isSpeaking = true;
     notifyListeners();
     await _tts.speak(text);
@@ -164,11 +272,8 @@ class VoiceService extends ChangeNotifier {
   }
 
   VoiceCommand _parseMedicationCommand(String text) {
-    // Try to extract: medicine name, time, frequency
-    // Pattern: "remind [name] at [time] [frequency]" or "remind [name] [time]"
     final data = <String, String>{};
 
-    // Extract time patterns like "8 AM", "10:30 PM", "morning", "evening"
     final timeRegex = RegExp(r'(\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM))', caseSensitive: false);
     final timeMatch = timeRegex.firstMatch(text);
     if (timeMatch != null) {
@@ -183,7 +288,6 @@ class VoiceService extends ChangeNotifier {
       data['time'] = '10:00 PM';
     }
 
-    // Extract frequency
     if (text.contains('daily') || text.contains('roz') || text.contains('everyday')) {
       data['frequency'] = 'daily';
     } else if (text.contains('weekly') || text.contains('hafta')) {
@@ -194,7 +298,6 @@ class VoiceService extends ChangeNotifier {
       data['frequency'] = 'daily';
     }
 
-    // Extract medicine name: take everything between "remind" and "at"/"daily"/time
     String medName = text;
     for (final word in ['remind', 'medicine', 'tablet', 'dawai', 'goli', 'medication', 'add', 'set', 'reminder for']) {
       medName = medName.replaceAll(word, '');
@@ -211,14 +314,12 @@ class VoiceService extends ChangeNotifier {
   VoiceCommand _parseHydrationCommand(String text) {
     final data = <String, String>{};
 
-    // Extract amount in ml
     final mlRegex = RegExp(r'(\d+)\s*(?:ml|mL|milliliter)', caseSensitive: false);
     final mlMatch = mlRegex.firstMatch(text);
     if (mlMatch != null) {
       data['amount'] = mlMatch.group(1)!;
     }
 
-    // Extract glasses
     final glassRegex = RegExp(r'(\d+)\s*glass', caseSensitive: false);
     final glassMatch = glassRegex.firstMatch(text);
     if (glassMatch != null) {
@@ -226,7 +327,6 @@ class VoiceService extends ChangeNotifier {
       data['amount'] = (glasses * 250).toString();
     }
 
-    // Default to 250ml (1 glass)
     if (!data.containsKey('amount')) {
       data['amount'] = '250';
     }

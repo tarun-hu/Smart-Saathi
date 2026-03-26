@@ -122,27 +122,149 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
             const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 54,
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                        side: const BorderSide(color: Colors.red),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16)),
+                      ),
+                      onPressed: () async {
+                        await _supabase.deleteNominee(nominee.id);
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        await _loadData();
+                        _showSnack('Nominee removed');
+                      },
+                      child: Text('Delete',
+                          style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: SizedBox(
+                    height: 54,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1A237E),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16)),
+                      ),
+                      onPressed: () async {
+                        if (nameC.text.trim().isEmpty || phoneC.text.trim().isEmpty) {
+                          return;
+                        }
+                        await _supabase.updateNominee(
+                            nominee.id, nameC.text.trim(), phoneC.text.trim());
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        await _loadData();
+                        _showSnack('Nominee updated ✅');
+                      },
+                      child: Text('Save Changes',
+                          style: GoogleFonts.poppins(
+                              fontSize: 17, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _addNominee() async {
+    final nameC = TextEditingController();
+    final phoneC = TextEditingController();
+    final nextPosition = _nominees.length + 1;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: EdgeInsets.fromLTRB(
+            24, 24, 24, MediaQuery.of(ctx).viewInsets.bottom + 24),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text('Add Nominee #$nextPosition',
+                style: GoogleFonts.poppins(
+                    fontSize: 20, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 20),
+            TextField(
+              controller: nameC,
+              style: GoogleFonts.poppins(fontSize: 16),
+              decoration: InputDecoration(
+                labelText: 'Name',
+                prefixIcon: const Icon(Icons.person),
+                filled: true,
+                fillColor: Colors.grey.shade100,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: phoneC,
+              keyboardType: TextInputType.phone,
+              style: GoogleFonts.poppins(fontSize: 16),
+              decoration: InputDecoration(
+                labelText: 'WhatsApp Number (+91...)',
+                prefixIcon: const Icon(Icons.phone),
+                filled: true,
+                fillColor: Colors.grey.shade100,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
               height: 54,
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1A237E),
+                  backgroundColor: const Color(0xFF2E7D32),
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16)),
                 ),
                 onPressed: () async {
-                  if (nameC.text.trim().isEmpty || phoneC.text.trim().isEmpty) {
-                    return;
-                  }
-                  await _supabase.updateNominee(
-                      nominee.id, nameC.text.trim(), phoneC.text.trim());
+                  if (nameC.text.trim().isEmpty || phoneC.text.trim().isEmpty) return;
+                  String phone = phoneC.text.trim().replaceAll(RegExp(r'[^\d]'), '');
+                  if (phone.length == 10) phone = '+91$phone';
+                  if (!phone.startsWith('+')) phone = '+$phone';
+                  await _supabase.addNominee(nameC.text.trim(), phone, nextPosition);
                   if (ctx.mounted) Navigator.pop(ctx);
                   await _loadData();
-                  _showSnack('Nominee updated ✅');
+                  _showSnack('Nominee added ✅');
                 },
-                child: Text('Save Changes',
+                child: Text('Add Nominee',
                     style: GoogleFonts.poppins(
                         fontSize: 17, fontWeight: FontWeight.w700)),
               ),
@@ -329,20 +451,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   color: Colors.grey.shade600)),
                           const SizedBox(height: 12),
                           ElevatedButton(
-                            onPressed: () => context.go('/nominees'),
+                            onPressed: _addNominee,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFFFF6F00),
                               foregroundColor: Colors.white,
                               shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12)),
                             ),
-                            child: const Text('Add Nominees'),
+                            child: const Text('Add Nominee'),
                           ),
                         ],
                       ),
                     )
                   else
                     ..._nominees.map(_nomineeCard),
+
+                  // Add nominee button (if less than 3)
+                  if (_nominees.isNotEmpty && _nominees.length < 3)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: OutlinedButton.icon(
+                          onPressed: _addNominee,
+                          icon: const Icon(Icons.person_add,
+                              color: Color(0xFF2E7D32)),
+                          label: Text('Add Nominee (${_nominees.length + 1}/3)',
+                              style: GoogleFonts.poppins(
+                                  color: const Color(0xFF2E7D32),
+                                  fontWeight: FontWeight.w600)),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Color(0xFF2E7D32)),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16)),
+                          ),
+                        ),
+                      ),
+                    ),
 
                   const SizedBox(height: 24),
 

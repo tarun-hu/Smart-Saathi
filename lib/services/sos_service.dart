@@ -14,7 +14,7 @@ class SosService {
 
   SosService(this._supabase);
 
-  /// Triggers SOS: sends WhatsApp messages to all 3 nominees with GPS location.
+  /// Triggers SOS: sends SMS + WhatsApp messages to all nominees with GPS location.
   /// Repeats every 30 seconds until [stopSos] is called.
   Future<void> triggerSos({
     required String seniorName,
@@ -31,7 +31,6 @@ class SosService {
       position = await _getCurrentPosition();
     } catch (e) {
       debugPrint('Location error: $e');
-      // Use a default / last known if GPS fails
       position = Position(
         latitude: 0,
         longitude: 0,
@@ -53,7 +52,7 @@ class SosService {
       debugPrint('Failed to log SOS: $e');
     }
 
-    // Send WhatsApp messages to all nominees
+    // Send SMS + WhatsApp messages to all nominees
     await _sendToAllNominees(
       nominees: nominees,
       seniorName: seniorName,
@@ -116,15 +115,14 @@ class SosService {
     );
   }
 
-  Future<void> _sendToAllNominees({
-    required List<Nominee> nominees,
+  String _buildMessage({
     required String seniorName,
     required String seniorPhone,
     required double lat,
     required double lng,
-  }) async {
+  }) {
     final mapsLink = 'https://maps.google.com/?q=$lat,$lng';
-    final message = '''🚨 EMERGENCY ALERT 🚨
+    return '''🚨 EMERGENCY ALERT 🚨
 
 $seniorName needs help!
 
@@ -134,23 +132,49 @@ $seniorName needs help!
 ⏰ Time: ${DateTime.now().toString().substring(0, 19)}
 
 Please respond immediately!''';
+  }
+
+  Future<void> _sendToAllNominees({
+    required List<Nominee> nominees,
+    required String seniorName,
+    required String seniorPhone,
+    required double lat,
+    required double lng,
+  }) async {
+    final message = _buildMessage(
+      seniorName: seniorName,
+      seniorPhone: seniorPhone,
+      lat: lat,
+      lng: lng,
+    );
 
     for (final nominee in nominees) {
-      try {
-        // Clean the WhatsApp number (remove +, spaces)
-        String cleanNumber = nominee.whatsappNumber.replaceAll(RegExp(r'[^\d]'), '');
-        // Ensure it starts with country code
-        if (cleanNumber.length == 10) {
-          cleanNumber = '91$cleanNumber';
-        }
+      // Clean the phone number
+      String cleanNumber =
+          nominee.whatsappNumber.replaceAll(RegExp(r'[^\d]'), '');
+      if (cleanNumber.length == 10) {
+        cleanNumber = '91$cleanNumber';
+      }
 
+      // 1. Send SMS
+      try {
+        final smsUri = Uri(
+          scheme: 'sms',
+          path: '+$cleanNumber',
+          queryParameters: {'body': message},
+        );
+        await launchUrl(smsUri);
+        await Future.delayed(const Duration(milliseconds: 800));
+      } catch (e) {
+        debugPrint('Failed to send SMS to ${nominee.name}: $e');
+      }
+
+      // 2. Send WhatsApp
+      try {
         final whatsappUrl =
             'https://wa.me/$cleanNumber?text=${Uri.encodeComponent(message)}';
         final uri = Uri.parse(whatsappUrl);
-
         await launchUrl(uri, mode: LaunchMode.externalApplication);
-
-        // Small delay between opening multiple WhatsApp windows
         await Future.delayed(const Duration(milliseconds: 1500));
       } catch (e) {
         debugPrint('Failed to send WhatsApp to ${nominee.name}: $e');

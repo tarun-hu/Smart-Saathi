@@ -1,11 +1,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 import '../services/supabase_service.dart';
 import '../services/voice_service.dart';
 import '../services/sos_service.dart';
 import '../services/notification_service.dart';
+import '../services/ai_service.dart';
+import '../services/update_service.dart';
 import '../models/nominee.dart';
+import '../models/hydration_log.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -19,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final _voice = VoiceService();
   late SosService _sos;
   final _notif = NotificationService();
+  final _ai = AIService.instance;
 
   String _userName = 'Friend';
   String _userPhone = '';
@@ -26,9 +31,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   int _hydrationMl = 0;
   String? _todayMood;
   List<Nominee> _nominees = [];
+  List<HydrationLog> _hydrationLogs = [];
   bool _isVoiceActive = false;
   String _voiceStatus = '';
   String _lastCommand = '';
+  String _aiResponse = '';
+
 
   late AnimationController _pulseController;
   late AnimationController _sosGlowController;
@@ -54,7 +62,28 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Future<void> _init() async {
     await _voice.initialize();
     await _notif.initialize();
+    await _ai.initialize();
     await _loadData();
+
+    // Start wake word listening
+    _voice.startWakeWordListening((command) {
+      if (command.isNotEmpty) {
+        _processCommand(command);
+      } else {
+        // Wake word detected but no command — enter voice mode
+        _startVoice();
+      }
+    });
+
+    // Check for app updates
+    _checkForUpdates();
+  }
+
+  Future<void> _checkForUpdates() async {
+    final release = await UpdateService.checkForUpdate();
+    if (release != null && mounted) {
+      UpdateService.showUpdateDialog(context, release);
+    }
   }
 
   Future<void> _loadData() async {
@@ -64,6 +93,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       final hydration = await _supabase.getTodayHydration();
       final wellbeing = await _supabase.getTodayWellbeing();
       final nominees = await _supabase.getNominees();
+      final hydrationLogs = await _supabase.getTodayHydrationLogs();
 
       if (mounted) {
         setState(() {
@@ -73,6 +103,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _hydrationMl = hydration;
           _todayMood = wellbeing?.mood;
           _nominees = nominees;
+          _hydrationLogs = hydrationLogs;
         });
       }
     } catch (e) {
@@ -81,18 +112,30 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _startVoice() async {
-    if (_voice.isListening) {
+    if (_voice.isListening && _isVoiceActive) {
       _voice.stopListening();
       setState(() {
         _isVoiceActive = false;
         _voiceStatus = '';
       });
+      // Resume wake word mode
+      _voice.startWakeWordListening((command) {
+        if (command.isNotEmpty) {
+          _processCommand(command);
+        } else {
+          _startVoice();
+        }
+      });
       return;
     }
+
+    // Stop wake word mode temporarily
+    _voice.stopWakeWordListening();
 
     setState(() {
       _isVoiceActive = true;
       _voiceStatus = 'Listening... Say something!';
+      _aiResponse = '';
     });
 
     await _voice.speak(_voice.isHindi
@@ -156,7 +199,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         await _voice.speak(_voice.isHindi
             ? 'आप कैसा महसूस कर रहे हैं? खुश, ठीक, उदास, या अस्वस्थ?'
             : 'How are you feeling? Happy, okay, sad, or unwell?');
-        // Start listening again for mood response
         Future.delayed(const Duration(seconds: 2), () {
           if (mounted) _startVoice();
         });
@@ -175,14 +217,35 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             : 'Today: $_pendingMeds meds pending, ${_hydrationMl}ml water, mood: ${_todayMood ?? "not logged yet"}');
         break;
       case CommandType.unknown:
-        await _voice.speak(_voice.isHindi
-            ? 'समझ नहीं आया। कृपया फिर से कहें।'
-            : 'I didn\'t understand that. Please try again.');
+        // Route to AI for conversational response
+        if (_ai.isConfigured) {
+          setState(() {
+            _voiceStatus = 'Thinking...';
+          });
+          final response = await _ai.chat(text);
+          setState(() {
+            _aiResponse = response;
+          });
+          await _voice.speak(response);
+        } else {
+          await _voice.speak(_voice.isHindi
+              ? 'समझ नहीं आया। कृपया फिर से कहें।'
+              : 'I didn\'t understand that. Please try again.');
+        }
         break;
     }
 
     await _loadData();
     setState(() => _voiceStatus = '');
+
+    // Resume wake word listening
+    _voice.startWakeWordListening((command) {
+      if (command.isNotEmpty) {
+        _processCommand(command);
+      } else {
+        _startVoice();
+      }
+    });
   }
 
   Future<void> _triggerSos() async {
@@ -232,21 +295,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   String _moodEmoji(String? mood) {
     switch (mood) {
-      case 'happy':
-        return '😊';
-      case 'okay':
-        return '🙂';
-      case 'sad':
-        return '😔';
-      case 'unwell':
-        return '🤒';
-      default:
-        return '❓';
+      case 'happy': return '😊';
+      case 'okay': return '🙂';
+      case 'sad': return '😔';
+      case 'unwell': return '🤒';
+      default: return '❓';
     }
   }
 
   @override
   void dispose() {
+    _voice.stopWakeWordListening();
     _voice.dispose();
     _pulseController.dispose();
     _sosGlowController.dispose();
@@ -293,6 +352,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 // Voice Hub
                 _buildVoiceHub(),
                 const SizedBox(height: 20),
+
+                // AI Response
+                if (_aiResponse.isNotEmpty) ...[
+                  _buildAIResponseCard(),
+                  const SizedBox(height: 16),
+                ],
 
                 // Quick Status Cards
                 Text(
@@ -392,6 +457,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   () async {
                     await _supabase.addHydration(250);
                     setState(() => _hydrationMl += 250);
+                    await _loadData();
                     _voice.speak(_voice.isHindi
                         ? 'एक गिलास पानी लॉग किया गया'
                         : 'One glass of water logged');
@@ -409,6 +475,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         : 'Today: $_pendingMeds meds pending, ${_hydrationMl}ml water');
                   },
                 ),
+                const SizedBox(height: 24),
+
+                // ──── WATER TRACKING SECTION ─────────────
+                _buildWaterSection(),
                 const SizedBox(height: 80),
               ],
             ),
@@ -466,7 +536,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 if (isActive) ...[
                   const SizedBox(height: 4),
                   Text(
-                    'Sending alerts to ${_nominees.length} nominees...',
+                    'Sending SMS + WhatsApp to ${_nominees.length} nominee${_nominees.length != 1 ? "s" : ""}...',
                     style: GoogleFonts.poppins(
                       fontSize: 13,
                       color: Colors.white.withAlpha(200),
@@ -543,7 +613,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         ? _lastCommand.isNotEmpty
                             ? '"$_lastCommand"'
                             : 'Say a command...'
-                        : 'Tap to speak',
+                        : _voice.isWakeWordMode
+                            ? '🟢 Listening for "Hey Saathi"'
+                            : 'Tap to speak',
                     style: GoogleFonts.poppins(
                       fontSize: 14,
                       color: Colors.white.withAlpha(180),
@@ -554,6 +626,208 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildAIResponseCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF7B1FA2).withAlpha(12),
+            const Color(0xFF4A148C).withAlpha(8),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFF7B1FA2).withAlpha(25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF7B1FA2).withAlpha(20),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.smart_toy_rounded,
+                    size: 18, color: Color(0xFF7B1FA2)),
+              ),
+              const SizedBox(width: 8),
+              Text('Saathi',
+                  style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF7B1FA2))),
+              const Spacer(),
+              GestureDetector(
+                onTap: () => setState(() => _aiResponse = ''),
+                child: Icon(Icons.close, size: 18, color: Colors.grey.shade400),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _aiResponse,
+            style: GoogleFonts.poppins(
+              fontSize: 15,
+              color: const Color(0xFF1A1A2E),
+              height: 1.5,
+            ),
+          ),
+          if (_lastCommand.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              'You said: "$_lastCommand"',
+              style: GoogleFonts.poppins(
+                  fontSize: 11, color: Colors.grey.shade500, fontStyle: FontStyle.italic),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWaterSection() {
+    final progress = (_hydrationMl / 2000).clamp(0.0, 1.0);
+    final glasses = (_hydrationMl / 250).floor();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.blue.withAlpha(12),
+            blurRadius: 15,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.water_drop_rounded,
+                  size: 24, color: const Color(0xFF1565C0)),
+              const SizedBox(width: 8),
+              Text("Today's Water",
+                  style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF1565C0))),
+              const Spacer(),
+              Text('$glasses 🥤',
+                  style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF1565C0))),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Progress bar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 10,
+              backgroundColor: const Color(0xFF1565C0).withAlpha(25),
+              valueColor:
+                  const AlwaysStoppedAnimation(Color(0xFF1565C0)),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${_hydrationMl}ml / 2000ml  •  ${(progress * 100).toInt()}%',
+            style: GoogleFonts.poppins(
+                fontSize: 13,
+                color: Colors.grey.shade500,
+                fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 16),
+
+          // Quick add buttons
+          Row(
+            children: [
+              _miniWaterBtn('🥤', '100ml', 100),
+              const SizedBox(width: 8),
+              _miniWaterBtn('🥛', '250ml', 250),
+              const SizedBox(width: 8),
+              _miniWaterBtn('🫗', '500ml', 500),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Recent logs
+          if (_hydrationLogs.isNotEmpty) ...[
+            Text('Recent',
+                style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade500)),
+            const SizedBox(height: 6),
+            ..._hydrationLogs.take(5).map((log) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.water_drop,
+                          size: 14, color: Color(0xFF42A5F5)),
+                      const SizedBox(width: 6),
+                      Text('${log.amount}ml',
+                          style: GoogleFonts.poppins(
+                              fontSize: 13, fontWeight: FontWeight.w600)),
+                      const Spacer(),
+                      Text(
+                        DateFormat('h:mm a').format(log.timestamp),
+                        style: GoogleFonts.poppins(
+                            fontSize: 12, color: Colors.grey.shade400),
+                      ),
+                    ],
+                  ),
+                )),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _miniWaterBtn(String emoji, String label, int ml) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: () async {
+          await _supabase.addHydration(ml);
+          setState(() => _hydrationMl += ml);
+          await _loadData();
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1565C0).withAlpha(12),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFF1565C0).withAlpha(20)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(emoji, style: const TextStyle(fontSize: 16)),
+              const SizedBox(width: 4),
+              Text(label,
+                  style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF1565C0))),
+            ],
+          ),
+        ),
       ),
     );
   }

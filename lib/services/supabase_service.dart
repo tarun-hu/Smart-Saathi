@@ -1,9 +1,12 @@
+import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/medication.dart';
 import '../models/nominee.dart';
 import '../models/hydration_log.dart';
 import '../models/wellbeing_log.dart';
 import '../models/sos_event.dart';
+import '../models/health_report.dart';
+import '../models/vital_log.dart';
 
 class SupabaseService {
   final SupabaseClient _client;
@@ -131,6 +134,16 @@ class SupabaseService {
     });
   }
 
+  Future<void> updateMedication(
+      String id, String name, String dosage, String time, String frequency) async {
+    await _client.from('medications').update({
+      'name': name,
+      'dosage': dosage,
+      'time': time,
+      'frequency': frequency,
+    }).eq('id', id);
+  }
+
   Future<void> updateMedicationStatus(String id, String status) async {
     final update = <String, dynamic>{'status': status};
     if (status == 'taken') {
@@ -221,6 +234,84 @@ class SupabaseService {
         .maybeSingle();
     if (result == null) return null;
     return WellbeingLog.fromJson(result);
+  }
+
+  // ──── HEALTH REPORTS ───────────────────────────
+
+  Future<String> uploadReportImage(File imageFile) async {
+    if (userId == null) throw Exception('Not logged in');
+    final fileName =
+        '$userId/${DateTime.now().millisecondsSinceEpoch}.jpg';
+    await _client.storage.from('health-reports').upload(fileName, imageFile);
+    return _client.storage.from('health-reports').getPublicUrl(fileName);
+  }
+
+  Future<void> addHealthReport(String name, String imageUrl) async {
+    if (userId == null) return;
+    await _client.from('health_reports').insert({
+      'user_id': userId!,
+      'name': name,
+      'image_url': imageUrl,
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<List<HealthReport>> getHealthReports({int limit = 20}) async {
+    if (userId == null) return [];
+    final result = await _client
+        .from('health_reports')
+        .select()
+        .eq('user_id', userId!)
+        .order('timestamp', ascending: false)
+        .limit(limit);
+    return result.map<HealthReport>((m) => HealthReport.fromJson(m)).toList();
+  }
+
+  Future<void> deleteHealthReport(String id) async {
+    await _client.from('health_reports').delete().eq('id', id);
+  }
+
+  // ──── VITAL LOGS ───────────────────────────────
+
+  Future<void> addVitalLog({
+    required String type,
+    double? value,
+    int? systolic,
+    int? diastolic,
+  }) async {
+    if (userId == null) return;
+    await _client.from('vital_logs').insert({
+      'user_id': userId!,
+      'type': type,
+      'value': value,
+      'systolic': systolic,
+      'diastolic': diastolic,
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<List<VitalLog>> getVitalLogs({int limit = 30}) async {
+    if (userId == null) return [];
+    final result = await _client
+        .from('vital_logs')
+        .select()
+        .eq('user_id', userId!)
+        .order('timestamp', ascending: false)
+        .limit(limit);
+    return result.map<VitalLog>((m) => VitalLog.fromJson(m)).toList();
+  }
+
+  Future<List<VitalLog>> getTodayVitals() async {
+    if (userId == null) return [];
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
+    final result = await _client
+        .from('vital_logs')
+        .select()
+        .eq('user_id', userId!)
+        .gte('timestamp', startOfDay)
+        .order('timestamp', ascending: false);
+    return result.map<VitalLog>((m) => VitalLog.fromJson(m)).toList();
   }
 
   // ──── SOS EVENTS ───────────────────────────────
