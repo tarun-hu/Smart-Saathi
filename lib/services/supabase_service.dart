@@ -121,27 +121,73 @@ class SupabaseService {
     return result.map<Medication>((m) => Medication.fromJson(m)).toList();
   }
 
-  Future<void> addMedication(
+  Future<Medication> addMedication(
       String name, String dosage, String time, String frequency) async {
-    if (userId == null) return;
-    await _client.from('medications').insert({
+    if (userId == null) {
+      throw Exception('Please log in again to add medication.');
+    }
+    final inserted = await _insertMedicationWithDoseFallback({
       'user_id': userId!,
       'name': name,
-      'dosage': dosage,
       'time': time,
       'frequency': frequency,
       'status': 'pending',
-    });
+    }, dosage);
+    return Medication.fromJson(_normalizeMedicationRow(inserted));
   }
 
   Future<void> updateMedication(
       String id, String name, String dosage, String time, String frequency) async {
-    await _client.from('medications').update({
+    await _updateMedicationWithDoseFallback(id, {
       'name': name,
-      'dosage': dosage,
       'time': time,
       'frequency': frequency,
-    }).eq('id', id);
+    }, dosage);
+  }
+
+  Future<Map<String, dynamic>> _insertMedicationWithDoseFallback(
+      Map<String, dynamic> payload, String dosage) async {
+    try {
+      return await _client.from('medications').insert({
+        ...payload,
+        'dose': dosage,
+      }).select().single();
+    } on PostgrestException catch (e) {
+      if (!_isMedicationDoseSchemaMismatch(e)) rethrow;
+      return await _client.from('medications').insert({
+        ...payload,
+        'dosage': dosage,
+      }).select().single();
+    }
+  }
+
+  Future<void> _updateMedicationWithDoseFallback(
+      String id, Map<String, dynamic> payload, String dosage) async {
+    try {
+      await _client.from('medications').update({
+        ...payload,
+        'dose': dosage,
+      }).eq('id', id);
+    } on PostgrestException catch (e) {
+      if (!_isMedicationDoseSchemaMismatch(e)) rethrow;
+      await _client.from('medications').update({
+        ...payload,
+        'dosage': dosage,
+      }).eq('id', id);
+    }
+  }
+
+  bool _isMedicationDoseSchemaMismatch(PostgrestException e) {
+    final details = '${e.message} ${e.details ?? ''} ${e.hint ?? ''}'.toLowerCase();
+    return details.contains('dose') || details.contains('dosage');
+  }
+
+  Map<String, dynamic> _normalizeMedicationRow(Map<String, dynamic> row) {
+    if (row.containsKey('dosage') || !row.containsKey('dose')) return row;
+    return {
+      ...row,
+      'dosage': row['dose'],
+    };
   }
 
   Future<void> updateMedicationStatus(String id, String status) async {

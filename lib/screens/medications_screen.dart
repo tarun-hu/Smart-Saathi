@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/supabase_service.dart';
@@ -16,6 +18,9 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
   final _voice = VoiceService();
   List<Medication> _medications = [];
   bool _isLoading = true;
+  StreamSubscription<List<Medication>>? _medicationsSub;
+  Future<void>? _voiceInitFuture;
+  bool _voiceReady = false;
 
   @override
   void initState() {
@@ -24,19 +29,83 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
   }
 
   Future<void> _init() async {
-    await _voice.initialize();
-    _loadMeds();
+    await _refreshMeds();
+    _listenForMeds();
   }
 
-  void _loadMeds() {
-    _supabase.getMedicationsStream().listen((meds) {
+  Future<void> _refreshMeds() async {
+    try {
+      final meds = await _supabase.getMedications();
+      _setMedications(meds);
+    } catch (e) {
       if (mounted) {
-        setState(() {
-          _medications = meds;
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
       }
+      _showSnack('Could not load medications: ${_friendlyError(e)}');
+    }
+  }
+
+  void _listenForMeds() {
+    _medicationsSub?.cancel();
+    _medicationsSub = _supabase.getMedicationsStream().listen((meds) {
+      _setMedications(meds);
+    }, onError: (error) {
+      _showSnack('Live updates are unavailable. Refreshing medications instead.');
+      unawaited(_refreshMeds());
     });
+  }
+
+  Future<void> _ensureVoiceReady() {
+    if (_voiceReady) return Future.value();
+    return _voiceInitFuture ??= _voice.initialize().then((_) {
+      _voiceReady = true;
+    }).catchError((error) {
+      _voiceInitFuture = null;
+      throw error;
+    });
+  }
+
+  Future<void> _speakIfReady(String message) async {
+    if (!_voiceReady) return;
+    await _voice.speak(message);
+  }
+
+  void _setMedications(List<Medication> meds) {
+    if (!mounted) return;
+    final sorted = [...meds]..sort((a, b) => a.time.compareTo(b.time));
+    setState(() {
+      _medications = sorted;
+      _isLoading = false;
+    });
+  }
+
+  void _upsertMedication(Medication medication) {
+    final meds = [..._medications];
+    final index = meds.indexWhere((m) => m.id == medication.id);
+    if (index == -1) {
+      meds.add(medication);
+    } else {
+      meds[index] = medication;
+    }
+    _setMedications(meds);
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  String _friendlyError(Object error) {
+    final message = error.toString().replaceFirst('Exception: ', '');
+    if (message.contains('linked_senior_id')) {
+      return 'The medications database policy is outdated. Run fix_medications_policies.sql in Supabase and try again.';
+    }
+    return message;
   }
 
   Future<void> _addMedDialog() async {
@@ -110,15 +179,26 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
                         borderRadius: BorderRadius.circular(16)),
                   ),
                   onPressed: () async {
-                    if (nameC.text.trim().isEmpty) return;
-                    await _supabase.addMedication(
-                      nameC.text.trim(),
-                      dosageC.text.trim(),
-                      timeC.text.trim(),
-                      frequency,
-                    );
-                    if (ctx.mounted) Navigator.pop(ctx);
-                    _voice.speak('Medicine "${nameC.text.trim()}" added');
+                    final name = nameC.text.trim();
+                    if (name.isEmpty) {
+                      _showSnack('Please enter a medicine name.');
+                      return;
+                    }
+
+                    try {
+                      final medication = await _supabase.addMedication(
+                        name,
+                        dosageC.text.trim(),
+                        timeC.text.trim(),
+                        frequency,
+                      );
+                      _upsertMedication(medication);
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      _showSnack('Medicine added.');
+                      unawaited(_speakIfReady('Medicine "$name" added'));
+                    } catch (e) {
+                      _showSnack('Could not add medicine: ${_friendlyError(e)}');
+                    }
                   },
                   child: Text('Add Medicine',
                       style: GoogleFonts.poppins(
@@ -151,6 +231,7 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
 
   @override
   void dispose() {
+    _medicationsSub?.cancel();
     _voice.dispose();
     super.dispose();
   }
@@ -207,15 +288,29 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
                 ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
-          _voice.startListening((text) {
+          try {
+            await _ensureVoiceReady();
+          } catch (e) {
+            _showSnack('Voice is unavailable: ${_friendlyError(e)}');
+            return;
+          }
+
+          _voice.startListening((text) async {
             final cmd = _voice.parseCommand(text);
             if (cmd.type == CommandType.medAdd) {
               final name = cmd.data?['name'] ?? '';
               final time = cmd.data?['time'] ?? '8:00 AM';
               final freq = cmd.data?['frequency'] ?? 'daily';
               if (name.isNotEmpty) {
-                _supabase.addMedication(name, '1 tablet', time, freq);
-                _voice.speak('Added $name at $time');
+                try {
+                  final medication =
+                      await _supabase.addMedication(name, '1 tablet', time, freq);
+                  _upsertMedication(medication);
+                  unawaited(_voice.speak('Added $name at $time'));
+                } catch (e) {
+                  _showSnack(
+                      'Could not add medicine by voice: ${_friendlyError(e)}');
+                }
               }
             }
           });
@@ -313,7 +408,7 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
             GestureDetector(
               onTap: () async {
                 await _supabase.updateMedicationStatus(med.id, 'taken');
-                _voice.speak('${med.name} marked as taken');
+                unawaited(_speakIfReady('${med.name} marked as taken'));
               },
               child: Container(
                 padding:
