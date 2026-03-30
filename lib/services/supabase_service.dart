@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/medication.dart';
@@ -293,6 +294,7 @@ class SupabaseService {
 
   // ──── HEALTH REPORTS ───────────────────────────
 
+  /// Upload a single report image and return its public URL.
   Future<String> uploadReportImage(File imageFile) async {
     if (userId == null) throw Exception('Not logged in');
     final fileName =
@@ -301,14 +303,34 @@ class SupabaseService {
     return _client.storage.from('health-reports').getPublicUrl(fileName);
   }
 
-  Future<void> addHealthReport(String name, String imageUrl) async {
+  /// Upload multiple report images and return list of public URLs.
+  Future<List<String>> uploadReportImages(List<File> imageFiles) async {
+    if (userId == null) throw Exception('Not logged in');
+    final urls = <String>[];
+    for (int i = 0; i < imageFiles.length; i++) {
+      final fileName =
+          '$userId/${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
+      await _client.storage.from('health-reports').upload(fileName, imageFiles[i]);
+      final url = _client.storage.from('health-reports').getPublicUrl(fileName);
+      urls.add(url);
+    }
+    return urls;
+  }
+
+  /// Add a health report with multiple image URLs stored as JSON array.
+  Future<void> addHealthReport(String name, String imageUrlOrJson) async {
     if (userId == null) return;
     await _client.from('health_reports').insert({
       'user_id': userId!,
       'name': name,
-      'image_url': imageUrl,
+      'image_url': imageUrlOrJson,
       'timestamp': DateTime.now().toIso8601String(),
     });
+  }
+
+  /// Convenience: add report with multiple URLs (encodes to JSON).
+  Future<void> addHealthReportMulti(String name, List<String> imageUrls) async {
+    await addHealthReport(name, jsonEncode(imageUrls));
   }
 
   Future<List<HealthReport>> getHealthReports({int limit = 20}) async {

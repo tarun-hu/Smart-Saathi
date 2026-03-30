@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -11,12 +12,16 @@ class VoiceService extends ChangeNotifier {
   bool _isListening = false;
   bool _isSpeaking = false;
   bool _isWakeWordMode = false;
+  bool _isProcessing = false;
   String _lastRecognized = '';
   String _currentLocale = 'en-IN';
+  int _wakeWordRetryCount = 0;
+  Timer? _restartTimer;
 
   bool get isListening => _isListening;
   bool get isSpeaking => _isSpeaking;
   bool get isWakeWordMode => _isWakeWordMode;
+  bool get isProcessing => _isProcessing;
   String get lastRecognized => _lastRecognized;
   String get currentLocale => _currentLocale;
   bool get isHindi => _currentLocale == 'hi-IN';
@@ -32,22 +37,26 @@ class VoiceService extends ChangeNotifier {
         debugPrint('Speech error: ${error.errorMsg}');
         _isListening = false;
         notifyListeners();
-        // Auto-restart wake word listening after error
-        if (_isWakeWordMode) {
-          Future.delayed(const Duration(seconds: 1), () {
-            _startWakeWordListeningInternal();
-          });
+
+        // Handle "busy" error by waiting longer
+        final delay = error.errorMsg.contains('busy')
+            ? Duration(seconds: 2 + _wakeWordRetryCount)
+            : Duration(seconds: 1);
+
+        if (_isWakeWordMode && !_isProcessing && !_isSpeaking) {
+          _scheduleWakeWordRestart(delay);
         }
       },
       onStatus: (status) {
+        debugPrint('Speech status: $status');
         if (status == 'notListening' || status == 'done') {
           _isListening = false;
           notifyListeners();
-          // Auto-restart wake word mode if active
-          if (_isWakeWordMode && !_isSpeaking) {
-            Future.delayed(const Duration(milliseconds: 500), () {
-              _startWakeWordListeningInternal();
-            });
+          // Auto-restart wake word mode if active and not processing/speaking
+          if (_isWakeWordMode && !_isProcessing && !_isSpeaking) {
+            _scheduleWakeWordRestart(
+              Duration(milliseconds: 500 + (_wakeWordRetryCount * 200)),
+            );
           }
         }
       },
@@ -62,10 +71,8 @@ class VoiceService extends ChangeNotifier {
       _isSpeaking = false;
       notifyListeners();
       // Resume wake word listening after speaking
-      if (_isWakeWordMode) {
-        Future.delayed(const Duration(milliseconds: 500), () {
-          _startWakeWordListeningInternal();
-        });
+      if (_isWakeWordMode && !_isProcessing) {
+        _scheduleWakeWordRestart(const Duration(milliseconds: 600));
       }
     });
 
@@ -92,9 +99,9 @@ class VoiceService extends ChangeNotifier {
   void startListening(Function(String) onResult, {Function(String)? onPartial}) {
     if (!_isInitialized || _isListening) return;
 
-    // Temporarily disable wake word mode during active listening
+    // Pause wake word mode during active listening
     final wasWakeMode = _isWakeWordMode;
-    _isWakeWordMode = false;
+    _cancelRestartTimer();
 
     _speech.listen(
       onResult: (result) {
@@ -130,17 +137,27 @@ class VoiceService extends ChangeNotifier {
     }
   }
 
+  // ──── PROCESSING STATE ─────────────────────────
+  // Call this before processing a command to prevent wake word from restarting
+
+  void setProcessing(bool value) {
+    _isProcessing = value;
+    notifyListeners();
+  }
+
   // ──── WAKE WORD DETECTION ──────────────────────
 
   void startWakeWordListening(Function(String) onWakeWordDetected) {
     _isWakeWordMode = true;
     _onWakeWordDetected = onWakeWordDetected;
+    _wakeWordRetryCount = 0;
     _startWakeWordListeningInternal();
   }
 
   void stopWakeWordListening() {
     _isWakeWordMode = false;
     _onWakeWordDetected = null;
+    _cancelRestartTimer();
     if (_isListening) {
       _speech.stop();
       _isListening = false;
@@ -148,34 +165,63 @@ class VoiceService extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _cancelRestartTimer() {
+    _restartTimer?.cancel();
+    _restartTimer = null;
+  }
+
+  void _scheduleWakeWordRestart(Duration delay) {
+    _cancelRestartTimer();
+    _restartTimer = Timer(delay, () {
+      _startWakeWordListeningInternal();
+    });
+  }
+
   void _startWakeWordListeningInternal() {
-    if (!_isInitialized || !_isWakeWordMode || _isListening || _isSpeaking) return;
+    if (!_isInitialized || !_isWakeWordMode || _isListening || _isSpeaking || _isProcessing) {
+      return;
+    }
 
-    _speech.listen(
-      onResult: (result) {
-        final text = result.recognizedWords.toLowerCase().trim();
-        _lastRecognized = text;
-        notifyListeners();
+    try {
+      _speech.listen(
+        onResult: (result) {
+          final text = result.recognizedWords.toLowerCase().trim();
+          _lastRecognized = text;
+          notifyListeners();
 
-        if (result.finalResult) {
-          // Check for wake word
-          if (_containsWakeWord(text)) {
-            // Extract the command after the wake word
-            String command = _extractCommand(text);
-            _onWakeWordDetected?.call(command);
+          if (result.finalResult) {
+            // Reset retry count on successful listen
+            _wakeWordRetryCount = 0;
+
+            // Check for wake word
+            if (_containsWakeWord(text)) {
+              // Extract the command after the wake word
+              String command = _extractCommand(text);
+              _onWakeWordDetected?.call(command);
+            }
           }
-        }
-      },
-      localeId: _currentLocale,
-      listenFor: const Duration(seconds: 10),
-      listenOptions: stt.SpeechListenOptions(
-        listenMode: stt.ListenMode.dictation,
-        cancelOnError: false,
-        partialResults: true,
-      ),
-    );
-    _isListening = true;
-    notifyListeners();
+        },
+        localeId: _currentLocale,
+        listenFor: const Duration(seconds: 5),
+        listenOptions: stt.SpeechListenOptions(
+          listenMode: stt.ListenMode.dictation,
+          cancelOnError: false,
+          partialResults: true,
+        ),
+      );
+      _isListening = true;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Wake word listen error: $e');
+      _wakeWordRetryCount++;
+      // Cap retry delay at 5 seconds
+      if (_wakeWordRetryCount > 5) _wakeWordRetryCount = 5;
+      if (_isWakeWordMode && !_isProcessing && !_isSpeaking) {
+        _scheduleWakeWordRestart(
+          Duration(seconds: 1 + _wakeWordRetryCount),
+        );
+      }
+    }
   }
 
   bool _containsWakeWord(String text) {
@@ -204,6 +250,7 @@ class VoiceService extends ChangeNotifier {
   Future<void> speak(String text) async {
     if (text.isEmpty) return;
     // Stop listening while speaking
+    _cancelRestartTimer();
     if (_isListening) {
       _speech.stop();
       _isListening = false;
@@ -299,14 +346,23 @@ class VoiceService extends ChangeNotifier {
     }
 
     String medName = text;
-    for (final word in ['remind', 'medicine', 'tablet', 'dawai', 'goli', 'medication', 'add', 'set', 'reminder for']) {
+    for (final word in [
+      'remind', 'me', 'to', 'take', 'remind me to take',
+      'medicine', 'tablet', 'dawai', 'goli', 'medication',
+      'add', 'set', 'reminder', 'for', 'reminder for',
+    ]) {
       medName = medName.replaceAll(word, '');
     }
     medName = medName.replaceAll(timeRegex, '');
-    for (final word in ['at', 'daily', 'weekly', 'roz', 'morning', 'evening', 'night', 'afternoon', 'subah', 'shaam', 'raat', 'dopahar', 'twice']) {
+    for (final word in [
+      'at', 'daily', 'weekly', 'roz', 'morning', 'evening',
+      'night', 'afternoon', 'subah', 'shaam', 'raat', 'dopahar', 'twice',
+    ]) {
       medName = medName.replaceAll(word, '');
     }
-    data['name'] = medName.trim();
+    // Clean up extra spaces
+    medName = medName.replaceAll(RegExp(r'\s+'), ' ').trim();
+    data['name'] = medName;
 
     return VoiceCommand(type: CommandType.medAdd, data: data);
   }
@@ -340,6 +396,7 @@ class VoiceService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _cancelRestartTimer();
     _speech.stop();
     _tts.stop();
     super.dispose();

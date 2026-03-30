@@ -10,6 +10,7 @@ import '../services/ai_service.dart';
 import '../services/update_service.dart';
 import '../models/nominee.dart';
 import '../models/hydration_log.dart';
+import 'package:go_router/go_router.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -32,11 +33,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   String? _todayMood;
   List<Nominee> _nominees = [];
   List<HydrationLog> _hydrationLogs = [];
+
+  // Voice assistant state
   bool _isVoiceActive = false;
   String _voiceStatus = '';
   String _lastCommand = '';
   String _aiResponse = '';
-
+  bool _isConversationMode = false;
+  Timer? _conversationTimer;
 
   late AnimationController _pulseController;
   late AnimationController _sosGlowController;
@@ -65,12 +69,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     await _ai.initialize();
     await _loadData();
 
-    // The wake word listening loop has been removed 
-    // to prevent the continuous uncomfortable Android system beep.
-    // Users will tap the Voice Hub button instead.
+    // Start wake word listening — "Hey Saathi"
+    _startWakeWordMode();
 
     // Check for app updates
     _checkForUpdates();
+  }
+
+  void _startWakeWordMode() {
+    if (!_voice.isInitialized) return;
+    _voice.startWakeWordListening((command) async {
+      // Wake word detected! Process the command
+      if (command.isNotEmpty) {
+        await _processCommand(command);
+      } else {
+        // Wake word detected but no command — activate listening mode
+        await _startVoice();
+      }
+    });
+    if (mounted) setState(() {});
   }
 
   Future<void> _checkForUpdates() async {
@@ -99,21 +116,34 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _nominees = nominees;
           _hydrationLogs = hydrationLogs;
         });
+
+        // Update AI service with user context
+        _ai.updateUserContext(
+          userName: _userName,
+          pendingMeds: _pendingMeds,
+          hydrationMl: _hydrationMl,
+          mood: _todayMood,
+        );
       }
     } catch (e) {
       debugPrint('Load data error: $e');
     }
   }
 
+  // ──── VOICE ASSISTANT ──────────────────────────
+
   Future<void> _startVoice() async {
+    // Toggle off if already active
     if (_voice.isListening && _isVoiceActive) {
       _voice.stopListening();
       setState(() {
         _isVoiceActive = false;
         _voiceStatus = '';
+        _isConversationMode = false;
       });
-      // Resume wake word mode (only if the user intends it, but we removed loop to stop beep)
-      // _voice.startWakeWordListening((command) async { ... });
+      _conversationTimer?.cancel();
+      // Resume wake word mode
+      _startWakeWordMode();
       return;
     }
 
@@ -122,7 +152,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     setState(() {
       _isVoiceActive = true;
-      _voiceStatus = 'Listening... Say something!';
+      _voiceStatus = _voice.isHindi ? 'सुन रहा हूँ...' : 'Listening...';
       _aiResponse = '';
     });
 
@@ -130,19 +160,62 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ? 'मैं सुन रहा हूँ, बताइए क्या मदद चाहिए?'
         : 'How can I help you?');
 
+    _startActiveListening();
+  }
+
+  void _startActiveListening() {
     _voice.startListening(
       (text) => _processCommand(text),
       onPartial: (text) {
-        setState(() => _lastCommand = text);
+        if (mounted) setState(() => _lastCommand = text);
       },
     );
   }
 
+  /// After AI responds, stay in conversation mode for a few seconds
+  void _enterConversationMode() {
+    _conversationTimer?.cancel();
+    _isConversationMode = true;
+
+    // Wait for TTS to finish, then listen for 8 more seconds
+    _conversationTimer = Timer(const Duration(seconds: 2), () {
+      if (!mounted || !_isConversationMode) return;
+
+      setState(() {
+        _isVoiceActive = true;
+        _voiceStatus = _voice.isHindi
+            ? 'और कुछ बताइए...'
+            : 'Anything else?';
+      });
+
+      _voice.startListening(
+        (text) => _processCommand(text),
+        onPartial: (text) {
+          if (mounted) setState(() => _lastCommand = text);
+        },
+      );
+
+      // Auto-exit conversation mode after timeout
+      _conversationTimer = Timer(const Duration(seconds: 10), () {
+        if (!mounted) return;
+        setState(() {
+          _isVoiceActive = false;
+          _isConversationMode = false;
+          _voiceStatus = '';
+        });
+        _startWakeWordMode();
+      });
+    });
+  }
+
   Future<void> _processCommand(String text) async {
+    _conversationTimer?.cancel();
+    _voice.setProcessing(true);
+
     setState(() {
       _isVoiceActive = false;
       _lastCommand = text;
-      _voiceStatus = 'Processing: "$text"';
+      _voiceStatus = _voice.isHindi ? 'सोच रहा हूँ...' : 'Processing...';
     });
 
     final command = _voice.parseCommand(text);
@@ -156,24 +229,59 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         final time = command.data?['time'] ?? '8:00 AM';
         final freq = command.data?['frequency'] ?? 'daily';
         if (name.isNotEmpty) {
-          await _supabase.addMedication(name, '1 tablet', time, freq);
-          await _voice.speak('${_voice.isHindi ? "दवाई जोड़ दी गई" : "Medicine added"}: $name at $time');
-          _notif.showMedicationReminder(
-            id: DateTime.now().millisecondsSinceEpoch % 100000,
-            medName: name,
-            dosage: '1 tablet',
-            time: time,
-          );
+          try {
+            await _supabase.addMedication(name, '1 tablet', time, freq);
+            await _voice.speak(_voice.isHindi
+                ? 'दवाई "$name" जोड़ दी गई, $time पर याद दिलाऊंगा'
+                : 'Medicine "$name" added. I\'ll remind you at $time');
+            _notif.showMedicationReminder(
+              id: DateTime.now().millisecondsSinceEpoch % 100000,
+              medName: name,
+              dosage: '1 tablet',
+              time: time,
+            );
+          } catch (e) {
+            await _voice.speak(_voice.isHindi
+                ? 'दवाई जोड़ने में समस्या हुई'
+                : 'There was a problem adding the medicine');
+          }
         } else {
-          await _voice.speak(_voice.isHindi
-              ? 'कृपया दवाई का नाम बताइए'
-              : 'Please tell me the medicine name');
+          // Name couldn't be parsed — use AI to extract
+          if (_ai.isConfigured) {
+            setState(() => _voiceStatus = _voice.isHindi ? 'सोच रहा हूँ...' : 'Thinking...');
+            final response = await _ai.chat(
+              'The user said: "$text". They want to add a medication reminder. '
+              'Please help them. Ask for the medicine name and time if not clear.',
+            );
+            setState(() => _aiResponse = response);
+            await _voice.speak(response);
+          } else {
+            await _voice.speak(_voice.isHindi
+                ? 'कृपया दवाई का नाम बताइए'
+                : 'Please tell me the medicine name');
+          }
         }
         break;
       case CommandType.medTaken:
-        await _voice.speak(_voice.isHindi
-            ? 'बहुत अच्छे! दवाई ली गई।'
-            : 'Great! Medicine marked as taken.');
+        // Find the first pending medication and mark it as taken
+        try {
+          final meds = await _supabase.getMedications();
+          final pending = meds.where((m) => m.status == 'pending').toList();
+          if (pending.isNotEmpty) {
+            await _supabase.updateMedicationStatus(pending.first.id, 'taken');
+            await _voice.speak(_voice.isHindi
+                ? 'बहुत अच्छे! "${pending.first.name}" ली गई।'
+                : 'Great! "${pending.first.name}" marked as taken.');
+          } else {
+            await _voice.speak(_voice.isHindi
+                ? 'कोई दवाई बाकी नहीं है!'
+                : 'No pending medicines to mark as taken!');
+          }
+        } catch (e) {
+          await _voice.speak(_voice.isHindi
+              ? 'बहुत अच्छे! दवाई ली गई।'
+              : 'Great! Medicine marked as taken.');
+        }
         break;
       case CommandType.hydration:
         final amount = int.tryParse(command.data?['amount'] ?? '250') ?? 250;
@@ -187,10 +295,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         await _voice.speak(_voice.isHindi
             ? 'आप कैसा महसूस कर रहे हैं? खुश, ठीक, उदास, या अस्वस्थ?'
             : 'How are you feeling? Happy, okay, sad, or unwell?');
-        Future.delayed(const Duration(seconds: 2), () {
-          if (mounted) _startVoice();
-        });
-        break;
+        // Enter conversation mode to listen for the response
+        _voice.setProcessing(false);
+        _enterConversationMode();
+        await _loadData();
+        setState(() => _voiceStatus = '');
+        return; // Exit early — don't resume wake word yet
       case CommandType.wellbeingLog:
         final mood = command.data?['mood'] ?? 'okay';
         await _supabase.addWellbeingLog(mood);
@@ -208,7 +318,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         // Route to AI for conversational response
         if (_ai.isConfigured) {
           setState(() {
-            _voiceStatus = 'Thinking...';
+            _voiceStatus = _voice.isHindi ? 'सोच रहा हूँ...' : 'Thinking...';
           });
           final response = await _ai.chat(text);
           setState(() {
@@ -224,20 +334,52 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
 
     await _loadData();
+    _voice.setProcessing(false);
     setState(() => _voiceStatus = '');
+
+    // After processing, enter conversation mode briefly
+    _enterConversationMode();
   }
 
+  // ──── SOS ──────────────────────────────────────
+
   Future<void> _triggerSos() async {
+    // Always re-fetch nominees fresh from database
+    try {
+      final freshNominees = await _supabase.getNominees();
+      setState(() => _nominees = freshNominees);
+    } catch (e) {
+      debugPrint('Failed to refresh nominees: $e');
+    }
+
     if (_nominees.isEmpty) {
       await _voice.speak(_voice.isHindi
-          ? 'कोई नॉमिनी नहीं मिला। कृपया पहले परिवार के सदस्य जोड़ें।'
-          : 'No nominees found. Please add family members first.');
+          ? 'कोई नॉमिनी नहीं मिला। कृपया पहले प्रोफ़ाइल में परिवार के सदस्य जोड़ें।'
+          : 'No nominees found. Please add family members in your Profile first.');
+      // Navigate to profile screen to add nominees
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Add nominees in Profile to enable SOS',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            action: SnackBarAction(
+              label: 'Go to Profile',
+              textColor: Colors.white,
+              onPressed: () => context.go('/profile'),
+            ),
+            backgroundColor: const Color(0xFFD32F2F),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
       return;
     }
 
     await _voice.speak(_voice.isHindi
-        ? 'आपातकालीन अलर्ट भेजा जा रहा है!'
-        : 'Sending emergency alert to your family!');
+        ? 'आपातकालीन अलर्ट ${_nominees.length} सदस्यों को भेजा जा रहा है!'
+        : 'Sending emergency alert to ${_nominees.length} family member${_nominees.length > 1 ? "s" : ""}!');
 
     await _notif.showSosActiveNotification();
 
@@ -259,6 +401,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         : 'Emergency alert stopped');
     setState(() {});
   }
+
+  // ──── HELPERS ──────────────────────────────────
 
   String _getGreeting() {
     final hour = DateTime.now().hour;
@@ -282,8 +426,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
+  String _getVoiceStateLabel() {
+    if (_voice.isSpeaking) return '🗣 Speaking...';
+    if (_voice.isProcessing) return '🧠 Thinking...';
+    if (_isVoiceActive) {
+      if (_lastCommand.isNotEmpty) return '"$_lastCommand"';
+      return _voice.isHindi ? '🎙 बोलिए...' : '🎙 Say something...';
+    }
+    if (_voice.isWakeWordMode) {
+      return '🟢 "Hey Saathi" active';
+    }
+    return 'Tap to speak';
+  }
+
   @override
   void dispose() {
+    _conversationTimer?.cancel();
     _voice.stopWakeWordListening();
     _voice.dispose();
     _pulseController.dispose();
@@ -291,6 +449,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (_sos.isActive) _sos.stopSos();
     super.dispose();
   }
+
+  // ──── BUILD ────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -456,7 +616,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 24),
 
-                // ──── WATER TRACKING SECTION ─────────────
+                // Water tracking section
                 _buildWaterSection(),
                 const SizedBox(height: 80),
               ],
@@ -466,6 +626,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
     );
   }
+
+  // ──── SOS BUTTON WIDGET ────────────────────────
 
   Widget _buildSosButton() {
     final isActive = _sos.isActive;
@@ -521,6 +683,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       color: Colors.white.withAlpha(200),
                     ),
                   ),
+                ] else if (_nominees.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '${_nominees.length} nominee${_nominees.length != 1 ? "s" : ""} ready',
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      color: Colors.white.withAlpha(180),
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -530,13 +701,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
+  // ──── VOICE HUB WIDGET ─────────────────────────
+
   Widget _buildVoiceHub() {
+    final isActive = _isVoiceActive || _voice.isSpeaking || _voice.isProcessing;
     return GestureDetector(
       onTap: _startVoice,
       child: AnimatedBuilder(
         animation: _pulseController,
         builder: (context, _) {
-          final scale = _isVoiceActive
+          final scale = isActive
               ? 1.0 + (_pulseController.value * 0.05)
               : 1.0;
           return Transform.scale(
@@ -546,14 +720,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: _isVoiceActive
+                  colors: isActive
                       ? [const Color(0xFF4A148C), const Color(0xFF7B1FA2)]
-                      : [const Color(0xFF1A237E), const Color(0xFF283593)],
+                      : _voice.isWakeWordMode
+                          ? [const Color(0xFF1A237E), const Color(0xFF283593)]
+                          : [const Color(0xFF37474F), const Color(0xFF455A64)],
                 ),
                 borderRadius: BorderRadius.circular(24),
                 boxShadow: [
                   BoxShadow(
-                    color: (_isVoiceActive
+                    color: (isActive
                             ? const Color(0xFF7B1FA2)
                             : const Color(0xFF1A237E))
                         .withAlpha(50),
@@ -569,17 +745,23 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     height: 64,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.white.withAlpha(_isVoiceActive ? 40 : 25),
+                      color: Colors.white.withAlpha(isActive ? 40 : 25),
                     ),
                     child: Icon(
-                      _isVoiceActive ? Icons.mic : Icons.mic_none_rounded,
+                      isActive
+                          ? Icons.mic
+                          : _voice.isWakeWordMode
+                              ? Icons.hearing_rounded
+                              : Icons.mic_none_rounded,
                       size: 36,
                       color: Colors.white,
                     ),
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    _isVoiceActive ? 'Listening...' : '🎙  "Hey Saathi"',
+                    isActive
+                        ? (_voice.isSpeaking ? 'Speaking...' : 'Listening...')
+                        : '🎙  "Hey Saathi"',
                     style: GoogleFonts.poppins(
                       fontSize: 22,
                       fontWeight: FontWeight.w700,
@@ -588,17 +770,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _isVoiceActive
-                        ? _lastCommand.isNotEmpty
-                            ? '"$_lastCommand"'
-                            : 'Say a command...'
-                        : _voice.isWakeWordMode
-                            ? '🟢 Listening for "Hey Saathi"'
-                            : 'Tap to speak',
+                    _getVoiceStateLabel(),
                     style: GoogleFonts.poppins(
                       fontSize: 14,
                       color: Colors.white.withAlpha(180),
                     ),
+                    textAlign: TextAlign.center,
                   ),
                 ],
               ),
@@ -608,6 +785,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
     );
   }
+
+  // ──── AI RESPONSE CARD ─────────────────────────
 
   Widget _buildAIResponseCard() {
     return Container(
@@ -672,6 +851,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
+  // ──── WATER SECTION ────────────────────────────
+
   Widget _buildWaterSection() {
     final progress = (_hydrationMl / 2000).clamp(0.0, 1.0);
     final glasses = (_hydrationMl / 250).floor();
@@ -695,8 +876,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         children: [
           Row(
             children: [
-              Icon(Icons.water_drop_rounded,
-                  size: 24, color: const Color(0xFF1565C0)),
+              const Icon(Icons.water_drop_rounded,
+                  size: 24, color: Color(0xFF1565C0)),
               const SizedBox(width: 8),
               Text("Today's Water",
                   style: GoogleFonts.poppins(
@@ -810,6 +991,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
     );
   }
+
+  // ──── REUSABLE WIDGETS ─────────────────────────
 
   Widget _statusCard({
     required IconData icon,

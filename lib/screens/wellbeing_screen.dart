@@ -50,7 +50,7 @@ class _WellbeingScreenState extends State<WellbeingScreen>
 
   Future<void> _captureReport() async {
     final picker = ImagePicker();
-    final source = await showModalBottomSheet<ImageSource>(
+    final source = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (ctx) => Container(
@@ -72,6 +72,9 @@ class _WellbeingScreenState extends State<WellbeingScreen>
             const SizedBox(height: 20),
             Text('Capture Report',
                 style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            Text('You can add multiple pages to a single report',
+                style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey.shade500)),
             const SizedBox(height: 20),
             Row(
               children: [
@@ -79,7 +82,8 @@ class _WellbeingScreenState extends State<WellbeingScreen>
                   child: _sourceButton(
                     icon: Icons.camera_alt_rounded,
                     label: 'Camera',
-                    onTap: () => Navigator.pop(ctx, ImageSource.camera),
+                    subtitle: 'Take photo',
+                    onTap: () => Navigator.pop(ctx, 'camera'),
                   ),
                 ),
                 const SizedBox(width: 14),
@@ -87,7 +91,8 @@ class _WellbeingScreenState extends State<WellbeingScreen>
                   child: _sourceButton(
                     icon: Icons.photo_library_rounded,
                     label: 'Gallery',
-                    onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+                    subtitle: 'Select multiple',
+                    onTap: () => Navigator.pop(ctx, 'gallery'),
                   ),
                 ),
               ],
@@ -100,9 +105,39 @@ class _WellbeingScreenState extends State<WellbeingScreen>
 
     if (source == null) return;
 
-    final image = await picker.pickImage(source: source, imageQuality: 80);
-    if (image == null) return;
-    if (!mounted) return;
+    List<XFile> images = [];
+
+    if (source == 'camera') {
+      // Camera: take one photo, but offer to add more
+      final image = await picker.pickImage(source: ImageSource.camera, imageQuality: 80);
+      if (image == null) return;
+      images.add(image);
+
+      // Ask if user wants to add more pages
+      if (mounted) {
+        bool addMore = true;
+        while (addMore && mounted) {
+          addMore = await _askAddMorePage(images.length);
+          if (addMore) {
+            final nextImage = await picker.pickImage(
+              source: ImageSource.camera, imageQuality: 80,
+            );
+            if (nextImage != null) {
+              images.add(nextImage);
+            } else {
+              addMore = false;
+            }
+          }
+        }
+      }
+    } else {
+      // Gallery: pick multiple images at once
+      final picked = await picker.pickMultiImage(imageQuality: 80);
+      if (picked.isEmpty) return;
+      images = picked;
+    }
+
+    if (images.isEmpty || !mounted) return;
 
     // Ask for report name
     final nameC = TextEditingController();
@@ -112,18 +147,28 @@ class _WellbeingScreenState extends State<WellbeingScreen>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text('Name this report',
             style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
-        content: TextField(
-          controller: nameC,
-          autofocus: true,
-          style: GoogleFonts.poppins(fontSize: 16),
-          decoration: InputDecoration(
-            hintText: 'e.g. Blood Test, X-Ray, Prescription',
-            filled: true,
-            fillColor: Colors.grey.shade100,
-            border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide.none),
-          ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '${images.length} page${images.length > 1 ? "s" : ""} selected',
+              style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey.shade500),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: nameC,
+              autofocus: true,
+              style: GoogleFonts.poppins(fontSize: 16),
+              decoration: InputDecoration(
+                hintText: 'e.g. Blood Test, X-Ray, Prescription',
+                filled: true,
+                fillColor: Colors.grey.shade100,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none),
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -149,13 +194,14 @@ class _WellbeingScreenState extends State<WellbeingScreen>
     // Upload and save
     setState(() => _isLoading = true);
     try {
-      final imageUrl = await _supabase.uploadReportImage(File(image.path));
-      await _supabase.addHealthReport(reportName, imageUrl);
+      final files = images.map((x) => File(x.path)).toList();
+      final imageUrls = await _supabase.uploadReportImages(files);
+      await _supabase.addHealthReportMulti(reportName, imageUrls);
       await _loadData();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Report "$reportName" saved ✅'),
+            content: Text('Report "$reportName" saved with ${imageUrls.length} page${imageUrls.length > 1 ? "s" : ""} ✅'),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
@@ -174,9 +220,49 @@ class _WellbeingScreenState extends State<WellbeingScreen>
     }
   }
 
+  Future<bool> _askAddMorePage(int currentCount) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('Add more pages?',
+            style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
+        content: Text('$currentCount page${currentCount > 1 ? "s" : ""} captured. Add another page to this report?',
+            style: GoogleFonts.poppins(fontSize: 14)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text("No, that's all", style: GoogleFonts.poppins()),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2E7D32),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Text('📸 Add page', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  void _viewReport(HealthReport report) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ReportViewerScreen(report: report),
+      ),
+    );
+  }
+
   Widget _sourceButton({
     required IconData icon,
     required String label,
+    String? subtitle,
     required VoidCallback onTap,
   }) {
     return GestureDetector(
@@ -197,6 +283,12 @@ class _WellbeingScreenState extends State<WellbeingScreen>
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
                     color: const Color(0xFF2E7D32))),
+            if (subtitle != null) ...[
+              const SizedBox(height: 2),
+              Text(subtitle,
+                  style: GoogleFonts.poppins(
+                      fontSize: 11, color: const Color(0xFF2E7D32).withAlpha(150))),
+            ],
           ],
         ),
       ),
@@ -483,62 +575,129 @@ class _WellbeingScreenState extends State<WellbeingScreen>
   }
 
   Widget _reportCard(HealthReport report) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withAlpha(6),
-              blurRadius: 10,
-              offset: const Offset(0, 4)),
-        ],
-      ),
-      child: Row(
-        children: [
-          ClipRRect(
-            borderRadius: const BorderRadius.horizontal(left: Radius.circular(18)),
-            child: Image.network(
-              report.imageUrl,
-              width: 80,
-              height: 80,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) => Container(
-                width: 80,
-                height: 80,
-                color: Colors.grey.shade200,
-                child: Icon(Icons.broken_image, color: Colors.grey.shade400),
-              ),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(report.name,
-                      style: GoogleFonts.poppins(
-                          fontSize: 16, fontWeight: FontWeight.w700)),
-                  Text(
-                    DateFormat('MMM d, yyyy • h:mm a').format(report.timestamp),
-                    style: GoogleFonts.poppins(
-                        fontSize: 12, color: Colors.grey.shade500),
+    return GestureDetector(
+      onTap: () => _viewReport(report),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withAlpha(6),
+                blurRadius: 10,
+                offset: const Offset(0, 4)),
+          ],
+        ),
+        child: Row(
+          children: [
+            // Thumbnail with page count badge
+            Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: const BorderRadius.horizontal(left: Radius.circular(18)),
+                  child: Image.network(
+                    report.thumbnailUrl,
+                    width: 80,
+                    height: 80,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      width: 80,
+                      height: 80,
+                      color: Colors.grey.shade200,
+                      child: Icon(Icons.broken_image, color: Colors.grey.shade400),
+                    ),
                   ),
-                ],
+                ),
+                if (report.pageCount > 1)
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1A237E),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '${report.pageCount} pg',
+                        style: GoogleFonts.poppins(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(report.name,
+                        style: GoogleFonts.poppins(
+                            fontSize: 16, fontWeight: FontWeight.w700)),
+                    Text(
+                      DateFormat('MMM d, yyyy • h:mm a').format(report.timestamp),
+                      style: GoogleFonts.poppins(
+                          fontSize: 12, color: Colors.grey.shade500),
+                    ),
+                    if (report.pageCount > 1)
+                      Text(
+                        '${report.pageCount} pages',
+                        style: GoogleFonts.poppins(
+                            fontSize: 11,
+                            color: const Color(0xFF1A237E),
+                            fontWeight: FontWeight.w600),
+                      ),
+                  ],
+                ),
               ),
             ),
-          ),
-          IconButton(
-            onPressed: () async {
-              await _supabase.deleteHealthReport(report.id);
-              await _loadData();
-            },
-            icon: Icon(Icons.delete_outline, color: Colors.grey.shade400, size: 22),
-          ),
-        ],
+            // View button
+            Container(
+              margin: const EdgeInsets.only(right: 8),
+              child: Icon(Icons.visibility_rounded,
+                  size: 22, color: const Color(0xFF2E7D32)),
+            ),
+            // Delete button
+            IconButton(
+              onPressed: () async {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                    title: Text('Delete report?',
+                        style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
+                    content: Text('Are you sure you want to delete "${report.name}"?',
+                        style: GoogleFonts.poppins()),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: Text('Cancel', style: GoogleFonts.poppins()),
+                      ),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red, foregroundColor: Colors.white),
+                        child: Text('Delete', style: GoogleFonts.poppins()),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirm == true) {
+                  await _supabase.deleteHealthReport(report.id);
+                  await _loadData();
+                }
+              },
+              icon: Icon(Icons.delete_outline, color: Colors.grey.shade400, size: 22),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -748,6 +907,197 @@ class _WellbeingScreenState extends State<WellbeingScreen>
       child: Text(label,
           style: GoogleFonts.poppins(
               fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+    );
+  }
+}
+
+// ──── FULL-SCREEN REPORT VIEWER ──────────────────
+
+class ReportViewerScreen extends StatefulWidget {
+  final HealthReport report;
+  const ReportViewerScreen({super.key, required this.report});
+
+  @override
+  State<ReportViewerScreen> createState() => _ReportViewerScreenState();
+}
+
+class _ReportViewerScreenState extends State<ReportViewerScreen> {
+  late PageController _pageController;
+  int _currentPage = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final report = widget.report;
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(report.name,
+                style: GoogleFonts.poppins(
+                    fontSize: 18, fontWeight: FontWeight.w700, color: Colors.white)),
+            if (report.pageCount > 1)
+              Text(
+                'Page ${_currentPage + 1} of ${report.pageCount}',
+                style: GoogleFonts.poppins(fontSize: 12, color: Colors.white70),
+              ),
+          ],
+        ),
+        actions: [
+          if (report.pageCount > 1)
+            Container(
+              margin: const EdgeInsets.only(right: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(20),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(
+                child: Text(
+                  '${_currentPage + 1} / ${report.pageCount}',
+                  style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white),
+                ),
+              ),
+            ),
+        ],
+      ),
+      body: report.imageUrls.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.broken_image_rounded, size: 60, color: Colors.grey.shade600),
+                  const SizedBox(height: 12),
+                  Text('No images available',
+                      style: GoogleFonts.poppins(color: Colors.grey.shade500)),
+                ],
+              ),
+            )
+          : Stack(
+              children: [
+                // Page viewer
+                PageView.builder(
+                  controller: _pageController,
+                  itemCount: report.imageUrls.length,
+                  onPageChanged: (page) {
+                    setState(() => _currentPage = page);
+                  },
+                  itemBuilder: (context, index) {
+                    return InteractiveViewer(
+                      minScale: 0.5,
+                      maxScale: 4.0,
+                      child: Center(
+                        child: Image.network(
+                          report.imageUrls[index],
+                          fit: BoxFit.contain,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  CircularProgressIndicator(
+                                    value: loadingProgress.expectedTotalBytes != null
+                                        ? loadingProgress.cumulativeBytesLoaded /
+                                            loadingProgress.expectedTotalBytes!
+                                        : null,
+                                    color: Colors.white,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'Loading page ${index + 1}...',
+                                    style: GoogleFonts.poppins(
+                                        color: Colors.white70, fontSize: 13),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                          errorBuilder: (context, error, stackTrace) => Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.broken_image_rounded,
+                                    size: 60, color: Colors.grey.shade600),
+                                const SizedBox(height: 12),
+                                Text('Failed to load image',
+                                    style: GoogleFonts.poppins(color: Colors.grey.shade500)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+
+                // Page indicator dots (for multi-page reports)
+                if (report.pageCount > 1)
+                  Positioned(
+                    bottom: 24,
+                    left: 0,
+                    right: 0,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(
+                        report.pageCount,
+                        (i) => Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 4),
+                          width: i == _currentPage ? 24 : 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: i == _currentPage
+                                ? Colors.white
+                                : Colors.white.withAlpha(80),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                // Swipe hint for multi-page
+                if (report.pageCount > 1 && _currentPage == 0)
+                  Positioned(
+                    bottom: 60,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withAlpha(25),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          '← Swipe to see more pages →',
+                          style: GoogleFonts.poppins(
+                              fontSize: 12, color: Colors.white70),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
     );
   }
 }
