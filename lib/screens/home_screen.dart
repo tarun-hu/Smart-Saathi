@@ -218,119 +218,92 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _voiceStatus = _voice.isHindi ? 'सोच रहा हूँ...' : 'Processing...';
     });
 
-    final command = _voice.parseCommand(text);
+    final aiResponse = await _ai.chat(text);
 
-    switch (command.type) {
-      case CommandType.sos:
-        await _triggerSos();
-        break;
-      case CommandType.medAdd:
-        final name = command.data?['name'] ?? '';
-        final time = command.data?['time'] ?? '8:00 AM';
-        final freq = command.data?['frequency'] ?? 'daily';
-        if (name.isNotEmpty) {
+    if (aiResponse.isToolCall) {
+      final name = aiResponse.toolName;
+      final args = aiResponse.toolArgs ?? {};
+
+      switch (name) {
+        case 'trigger_sos':
+          await _triggerSos();
+          break;
+        case 'add_medication':
+          final medName = args['name'] as String? ?? '';
+          final time = args['time'] as String? ?? '8:00 AM';
+          final freq = args['frequency'] as String? ?? 'daily';
+          if (medName.isNotEmpty) {
+            try {
+              await _supabase.addMedication(medName, '1 tablet', time, freq);
+              await _voice.speak(_voice.isHindi
+                  ? 'दवाई "$medName" जोड़ दी गई, $time पर याद दिलाऊंगा'
+                  : 'Medicine "$medName" added. I\'ll remind you at $time');
+              _notif.showMedicationReminder(
+                id: DateTime.now().millisecondsSinceEpoch % 100000,
+                medName: medName,
+                dosage: '1 tablet',
+                time: time,
+              );
+            } catch (e) {
+              await _voice.speak(_voice.isHindi
+                  ? 'दवाई जोड़ने में समस्या हुई'
+                  : 'There was a problem adding the medicine');
+            }
+          }
+          break;
+        case 'mark_medication_taken':
           try {
-            await _supabase.addMedication(name, '1 tablet', time, freq);
-            await _voice.speak(_voice.isHindi
-                ? 'दवाई "$name" जोड़ दी गई, $time पर याद दिलाऊंगा'
-                : 'Medicine "$name" added. I\'ll remind you at $time');
-            _notif.showMedicationReminder(
-              id: DateTime.now().millisecondsSinceEpoch % 100000,
-              medName: name,
-              dosage: '1 tablet',
-              time: time,
-            );
+            final meds = await _supabase.getMedications();
+            final pending = meds.where((m) => m.status == 'pending').toList();
+            if (pending.isNotEmpty) {
+              await _supabase.updateMedicationStatus(pending.first.id, 'taken');
+              await _voice.speak(_voice.isHindi
+                  ? 'बहुत अच्छे! "${pending.first.name}" ली गई।'
+                  : 'Great! "${pending.first.name}" marked as taken.');
+            } else {
+              await _voice.speak(_voice.isHindi
+                  ? 'कोई दवाई बाकी नहीं है!'
+                  : 'No pending medicines to mark as taken!');
+            }
           } catch (e) {
             await _voice.speak(_voice.isHindi
-                ? 'दवाई जोड़ने में समस्या हुई'
-                : 'There was a problem adding the medicine');
+                ? 'बहुत अच्छे! दवाई ली गई।'
+                : 'Great! Medicine marked as taken.');
           }
-        } else {
-          // Name couldn't be parsed — use AI to extract
-          if (_ai.isConfigured) {
-            setState(() => _voiceStatus = _voice.isHindi ? 'सोच रहा हूँ...' : 'Thinking...');
-            final response = await _ai.chat(
-              'The user said: "$text". They want to add a medication reminder. '
-              'Please help them. Ask for the medicine name and time if not clear.',
-            );
-            setState(() => _aiResponse = response);
-            await _voice.speak(response);
-          } else {
-            await _voice.speak(_voice.isHindi
-                ? 'कृपया दवाई का नाम बताइए'
-                : 'Please tell me the medicine name');
-          }
-        }
-        break;
-      case CommandType.medTaken:
-        // Find the first pending medication and mark it as taken
-        try {
-          final meds = await _supabase.getMedications();
-          final pending = meds.where((m) => m.status == 'pending').toList();
-          if (pending.isNotEmpty) {
-            await _supabase.updateMedicationStatus(pending.first.id, 'taken');
-            await _voice.speak(_voice.isHindi
-                ? 'बहुत अच्छे! "${pending.first.name}" ली गई।'
-                : 'Great! "${pending.first.name}" marked as taken.');
-          } else {
-            await _voice.speak(_voice.isHindi
-                ? 'कोई दवाई बाकी नहीं है!'
-                : 'No pending medicines to mark as taken!');
-          }
-        } catch (e) {
+          break;
+        case 'log_water':
+          final amount = args['amount'] as int? ?? 250;
+          await _supabase.addHydration(amount);
+          setState(() => _hydrationMl += amount);
           await _voice.speak(_voice.isHindi
-              ? 'बहुत अच्छे! दवाई ली गई।'
-              : 'Great! Medicine marked as taken.');
-        }
-        break;
-      case CommandType.hydration:
-        final amount = int.tryParse(command.data?['amount'] ?? '250') ?? 250;
-        await _supabase.addHydration(amount);
-        setState(() => _hydrationMl += amount);
-        await _voice.speak(_voice.isHindi
-            ? '$amount ml पानी लॉग किया। आज कुल $_hydrationMl ml'
-            : '$amount ml water logged. Today total: $_hydrationMl ml');
-        break;
-      case CommandType.wellbeingCheck:
-        await _voice.speak(_voice.isHindi
-            ? 'आप कैसा महसूस कर रहे हैं? खुश, ठीक, उदास, या अस्वस्थ?'
-            : 'How are you feeling? Happy, okay, sad, or unwell?');
-        // Enter conversation mode to listen for the response
-        _voice.setProcessing(false);
-        _enterConversationMode();
-        await _loadData();
-        setState(() => _voiceStatus = '');
-        return; // Exit early — don't resume wake word yet
-      case CommandType.wellbeingLog:
-        final mood = command.data?['mood'] ?? 'okay';
-        await _supabase.addWellbeingLog(mood);
-        setState(() => _todayMood = mood);
-        await _voice.speak(_voice.isHindi
-            ? 'आपका मूड "$mood" लॉग किया गया'
-            : 'Mood logged as "$mood"');
-        break;
-      case CommandType.status:
-        await _voice.speak(_voice.isHindi
-            ? 'आज: $_pendingMeds दवाइयाँ बाकी, $_hydrationMl ml पानी पिया, मूड: ${_todayMood ?? "अभी तक नहीं"}'
-            : 'Today: $_pendingMeds meds pending, ${_hydrationMl}ml water, mood: ${_todayMood ?? "not logged yet"}');
-        break;
-      case CommandType.unknown:
-        // Route to AI for conversational response
-        if (_ai.isConfigured) {
-          setState(() {
-            _voiceStatus = _voice.isHindi ? 'सोच रहा हूँ...' : 'Thinking...';
-          });
-          final response = await _ai.chat(text);
-          setState(() {
-            _aiResponse = response;
-          });
-          await _voice.speak(response);
-        } else {
+              ? '$amount ml पानी लॉग किया। आज कुल $_hydrationMl ml'
+              : '$amount ml water logged. Today total: $_hydrationMl ml');
+          break;
+        case 'log_wellbeing':
+          final mood = args['mood'] as String? ?? 'okay';
+          await _supabase.addWellbeingLog(mood);
+          setState(() => _todayMood = mood);
           await _voice.speak(_voice.isHindi
-              ? 'समझ नहीं आया। कृपया फिर से कहें।'
-              : 'I didn\'t understand that. Please try again.');
-        }
-        break;
+              ? 'आपका मूड "$mood" लॉग किया गया'
+              : 'Mood logged as "$mood"');
+          break;
+        case 'get_status':
+          await _voice.speak(_voice.isHindi
+              ? 'आज: $_pendingMeds दवाइयाँ बाकी, $_hydrationMl ml पानी पिया, मूड: ${_todayMood ?? "अभी तक नहीं"}'
+              : 'Today: $_pendingMeds meds pending, ${_hydrationMl}ml water, mood: ${_todayMood ?? "not logged yet"}');
+          break;
+        default:
+          await _voice.speak(_voice.isHindi
+              ? 'मुझे समझ नहीं आया।'
+              : 'I am not sure how to do that.');
+      }
+    } else if (aiResponse.text != null && aiResponse.text!.isNotEmpty) {
+      setState(() => _aiResponse = aiResponse.text!);
+      await _voice.speak(aiResponse.text!);
+    } else {
+      await _voice.speak(_voice.isHindi
+          ? 'समझ नहीं आया। कृपया फिर से कहें।'
+          : 'I didn\'t understand that. Please try again.');
     }
 
     await _loadData();

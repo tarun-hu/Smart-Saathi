@@ -43,7 +43,7 @@ class VoiceService extends ChangeNotifier {
             ? Duration(seconds: 2 + _wakeWordRetryCount)
             : Duration(seconds: 1);
 
-        if (_isWakeWordMode && !_isProcessing && !_isSpeaking) {
+        if (_isWakeWordMode && !_isProcessing) {
           _scheduleWakeWordRestart(delay);
         }
       },
@@ -52,8 +52,8 @@ class VoiceService extends ChangeNotifier {
         if (status == 'notListening' || status == 'done') {
           _isListening = false;
           notifyListeners();
-          // Auto-restart wake word mode if active and not processing/speaking
-          if (_isWakeWordMode && !_isProcessing && !_isSpeaking) {
+          // Auto-restart wake word mode if active and not processing
+          if (_isWakeWordMode && !_isProcessing) {
             _scheduleWakeWordRestart(
               Duration(milliseconds: 500 + (_wakeWordRetryCount * 200)),
             );
@@ -70,10 +70,7 @@ class VoiceService extends ChangeNotifier {
     _tts.setCompletionHandler(() {
       _isSpeaking = false;
       notifyListeners();
-      // Resume wake word listening after speaking
-      if (_isWakeWordMode && !_isProcessing) {
-        _scheduleWakeWordRestart(const Duration(milliseconds: 600));
-      }
+      // Listening should already be handling itself now that we removed the speak lock
     });
 
     final prefs = await SharedPreferences.getInstance();
@@ -119,6 +116,7 @@ class VoiceService extends ChangeNotifier {
       },
       localeId: _currentLocale,
       listenFor: const Duration(seconds: 30),
+      pauseFor: const Duration(seconds: 3),
       listenOptions: stt.SpeechListenOptions(
         listenMode: stt.ListenMode.dictation,
         cancelOnError: true,
@@ -178,7 +176,8 @@ class VoiceService extends ChangeNotifier {
   }
 
   void _startWakeWordListeningInternal() {
-    if (!_isInitialized || !_isWakeWordMode || _isListening || _isSpeaking || _isProcessing) {
+    // Note: removed _isSpeaking check to allow "barge-in" interruptions
+    if (!_isInitialized || !_isWakeWordMode || _isListening || _isProcessing) {
       return;
     }
 
@@ -195,10 +194,22 @@ class VoiceService extends ChangeNotifier {
 
             // Check for wake word
             if (_containsWakeWord(text)) {
+              if (_isSpeaking) {
+                _tts.stop();
+                _isSpeaking = false;
+                notifyListeners();
+              }
               // Extract the command after the wake word
               String command = _extractCommand(text);
               _onWakeWordDetected?.call(command);
             }
+          } else {
+             // Optional: Early barge-in on partial hits for higher responsiveness
+             if (_containsWakeWord(text) && _isSpeaking) {
+               _tts.stop();
+               _isSpeaking = false;
+               notifyListeners();
+             }
           }
         },
         localeId: _currentLocale,
@@ -216,7 +227,7 @@ class VoiceService extends ChangeNotifier {
       _wakeWordRetryCount++;
       // Cap retry delay at 5 seconds
       if (_wakeWordRetryCount > 5) _wakeWordRetryCount = 5;
-      if (_isWakeWordMode && !_isProcessing && !_isSpeaking) {
+      if (_isWakeWordMode && !_isProcessing) {
         _scheduleWakeWordRestart(
           Duration(seconds: 1 + _wakeWordRetryCount),
         );
@@ -249,11 +260,16 @@ class VoiceService extends ChangeNotifier {
 
   Future<void> speak(String text) async {
     if (text.isEmpty) return;
-    // Stop listening while speaking
-    _cancelRestartTimer();
-    if (_isListening) {
-      _speech.stop();
-      _isListening = false;
+    if (!_isWakeWordMode) {
+      _cancelRestartTimer();
+      if (_isListening) {
+        _speech.stop();
+        _isListening = false;
+      }
+    } else {
+      if (!_isListening && !_isProcessing) {
+        _startWakeWordListeningInternal();
+      }
     }
     _isSpeaking = true;
     notifyListeners();
@@ -266,134 +282,6 @@ class VoiceService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ──── VOICE COMMAND PARSER ─────────────────────
-
-  VoiceCommand parseCommand(String text) {
-    final lower = text.toLowerCase().trim();
-
-    // Emergency / SOS
-    if (_matchesAny(lower, [
-      'emergency', 'help', 'sos', 'bachao', 'madad',
-      'help me', 'please help', 'emergency help',
-    ])) {
-      return VoiceCommand(type: CommandType.sos);
-    }
-
-    // Medication reminders
-    if (_matchesAny(lower, ['remind', 'medicine', 'tablet', 'dawai', 'goli', 'medication', 'dawa'])) {
-      return _parseMedicationCommand(lower);
-    }
-
-    // Mark medication as taken
-    if (_matchesAny(lower, ['taken', 'le liya', 'kha liya', 'done', 'took'])) {
-      return VoiceCommand(type: CommandType.medTaken);
-    }
-
-    // Hydration
-    if (_matchesAny(lower, ['water', 'paani', 'pani', 'drank', 'glass', 'drink', 'hydration'])) {
-      return _parseHydrationCommand(lower);
-    }
-
-    // Wellbeing check
-    if (_matchesAny(lower, ['how am i', 'kaisa', 'feeling', 'mood', 'tabiyat', 'health'])) {
-      return VoiceCommand(type: CommandType.wellbeingCheck);
-    }
-
-    // Mood reports
-    if (_matchesAny(lower, ['happy', 'good', 'fine', 'great', 'accha', 'theek', 'okay', 'ok'])) {
-      return VoiceCommand(type: CommandType.wellbeingLog, data: {'mood': 'happy'});
-    }
-    if (_matchesAny(lower, ['sad', 'upset', 'dukhi', 'not good', 'not well', 'bura'])) {
-      return VoiceCommand(type: CommandType.wellbeingLog, data: {'mood': 'sad'});
-    }
-    if (_matchesAny(lower, ['unwell', 'sick', 'bimar', 'pain', 'dard', 'hurt'])) {
-      return VoiceCommand(type: CommandType.wellbeingLog, data: {'mood': 'unwell'});
-    }
-
-    // Status / Summary
-    if (_matchesAny(lower, ['status', 'summary', 'report', 'kya haal', 'din kaisa'])) {
-      return VoiceCommand(type: CommandType.status);
-    }
-
-    return VoiceCommand(type: CommandType.unknown, data: {'text': text});
-  }
-
-  VoiceCommand _parseMedicationCommand(String text) {
-    final data = <String, String>{};
-
-    final timeRegex = RegExp(r'(\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM))', caseSensitive: false);
-    final timeMatch = timeRegex.firstMatch(text);
-    if (timeMatch != null) {
-      data['time'] = timeMatch.group(0)!.trim();
-    } else if (text.contains('morning') || text.contains('subah')) {
-      data['time'] = '8:00 AM';
-    } else if (text.contains('afternoon') || text.contains('dopahar')) {
-      data['time'] = '2:00 PM';
-    } else if (text.contains('evening') || text.contains('shaam')) {
-      data['time'] = '6:00 PM';
-    } else if (text.contains('night') || text.contains('raat')) {
-      data['time'] = '10:00 PM';
-    }
-
-    if (text.contains('daily') || text.contains('roz') || text.contains('everyday')) {
-      data['frequency'] = 'daily';
-    } else if (text.contains('weekly') || text.contains('hafta')) {
-      data['frequency'] = 'weekly';
-    } else if (text.contains('twice')) {
-      data['frequency'] = 'twice daily';
-    } else {
-      data['frequency'] = 'daily';
-    }
-
-    String medName = text;
-    for (final word in [
-      'remind', 'me', 'to', 'take', 'remind me to take',
-      'medicine', 'tablet', 'dawai', 'goli', 'medication',
-      'add', 'set', 'reminder', 'for', 'reminder for',
-    ]) {
-      medName = medName.replaceAll(word, '');
-    }
-    medName = medName.replaceAll(timeRegex, '');
-    for (final word in [
-      'at', 'daily', 'weekly', 'roz', 'morning', 'evening',
-      'night', 'afternoon', 'subah', 'shaam', 'raat', 'dopahar', 'twice',
-    ]) {
-      medName = medName.replaceAll(word, '');
-    }
-    // Clean up extra spaces
-    medName = medName.replaceAll(RegExp(r'\s+'), ' ').trim();
-    data['name'] = medName;
-
-    return VoiceCommand(type: CommandType.medAdd, data: data);
-  }
-
-  VoiceCommand _parseHydrationCommand(String text) {
-    final data = <String, String>{};
-
-    final mlRegex = RegExp(r'(\d+)\s*(?:ml|mL|milliliter)', caseSensitive: false);
-    final mlMatch = mlRegex.firstMatch(text);
-    if (mlMatch != null) {
-      data['amount'] = mlMatch.group(1)!;
-    }
-
-    final glassRegex = RegExp(r'(\d+)\s*glass', caseSensitive: false);
-    final glassMatch = glassRegex.firstMatch(text);
-    if (glassMatch != null) {
-      final glasses = int.tryParse(glassMatch.group(1)!) ?? 1;
-      data['amount'] = (glasses * 250).toString();
-    }
-
-    if (!data.containsKey('amount')) {
-      data['amount'] = '250';
-    }
-
-    return VoiceCommand(type: CommandType.hydration, data: data);
-  }
-
-  bool _matchesAny(String text, List<String> keywords) {
-    return keywords.any((k) => text.contains(k));
-  }
-
   @override
   void dispose() {
     _cancelRestartTimer();
@@ -401,22 +289,4 @@ class VoiceService extends ChangeNotifier {
     _tts.stop();
     super.dispose();
   }
-}
-
-enum CommandType {
-  sos,
-  medAdd,
-  medTaken,
-  hydration,
-  wellbeingCheck,
-  wellbeingLog,
-  status,
-  unknown,
-}
-
-class VoiceCommand {
-  final CommandType type;
-  final Map<String, String>? data;
-
-  VoiceCommand({required this.type, this.data});
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/supabase_service.dart';
 import '../services/voice_service.dart';
+import '../services/ai_service.dart';
 
 class HydrationScreen extends StatefulWidget {
   const HydrationScreen({super.key});
@@ -242,12 +243,10 @@ class _HydrationScreenState extends State<HydrationScreen>
                         await _voice.speak(_voice.isHindi
                             ? 'बताइए कितना पानी पिया?'
                             : 'Tell me how much water you drank');
-                        _voice.startListening((text) {
-                          final cmd = _voice.parseCommand(text);
-                          if (cmd.type == CommandType.hydration) {
-                            final ml = int.tryParse(
-                                    cmd.data?['amount'] ?? '250') ??
-                                250;
+                        _voice.startListening((text) async {
+                          final aiResponse = await AIService.instance.chat(text);
+                          if (aiResponse.isToolCall && aiResponse.toolName == 'log_water') {
+                            final ml = aiResponse.toolArgs?['amount'] as int? ?? 250;
                             _addWater(ml);
                           }
                         });

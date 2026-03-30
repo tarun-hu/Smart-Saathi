@@ -3,11 +3,21 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
+class AIResponse {
+  final String? text;
+  final String? toolName;
+  final Map<String, dynamic>? toolArgs;
+
+  AIResponse({this.text, this.toolName, this.toolArgs});
+
+  bool get isToolCall => toolName != null;
+}
+
 class AIService {
   static final AIService instance = AIService._();
   AIService._();
 
-  final List<Map<String, String>> _conversationHistory = [];
+  final List<Map<String, dynamic>> _conversationHistory = [];
   String? _apiKey;
 
   // Context about user's current state — updated by the home screen
@@ -15,24 +25,24 @@ class AIService {
 
   static const String _systemPrompt = '''You are Saathi, a caring and warm AI voice companion for Indian seniors. 
 You speak simply, clearly, and with respect. You can understand both Hindi and English.
-Keep responses SHORT (2-3 sentences max) because responses are spoken aloud via TTS.
+Keep responses SHORT (1-2 sentences max) because responses are spoken aloud via TTS.
 Seniors may speak slowly or repeat themselves — be patient.
 
 You help with:
 - Daily health queries (not medical advice, just general wellness tips)
-- Reminders and motivation ("Have you taken your medicine?", "Let's drink some water!")
+- Reminders and motivation
 - Friendly conversation to reduce loneliness
-- Simple information queries
-- Wellbeing check-ins
 
 IMPORTANT RULES:
-- Always be encouraging, positive, and caring. Address the user respectfully.
-- If asked about emergencies, tell them to say "help" or "SOS" or press the SOS button.
-- Never give specific medical prescriptions or diagnoses.
-- If someone mentions medication, ask them if they'd like to add a reminder.
-- Keep language simple — think of talking to a grandparent.
+- Always be encouraging, positive, and caring.
+- If asked about emergencies, TRIGGER THE SOS TOOL IMMEDIATELY or tell them to press the SOS button.
+- If they want to log water, use the log_water tool. 1 glass = 250ml.
+- If they want to add a medicine, use the add_medication tool. Ask for time if unclear.
+- If they say they took their pill, use the mark_medication_taken tool.
+- If they share how they feel (happy, sad, sick), use the log_wellbeing tool.
+- If they ask for their status, use the get_status tool.
 - If user speaks Hindi, reply in Hindi. If English, reply in English.
-- Do NOT use markdown, bullet points, or formatting — speak naturally since this is voice output.''';
+- Do NOT use markdown, bullet points, or formatting — speak naturally.''';
 
   Future<void> initialize() async {
     _apiKey = dotenv.env['GROQ_API_KEY'];
@@ -60,9 +70,9 @@ IMPORTANT RULES:
     _userContext = parts.join('. ');
   }
 
-  Future<String> chat(String userMessage) async {
+  Future<AIResponse> chat(String userMessage) async {
     if (!isConfigured) {
-      return 'AI assistant is not configured. Please add your Groq API key.';
+      return AIResponse(text: 'AI assistant is not configured. Please add your API key.');
     }
 
     // Add user message to history
@@ -85,6 +95,78 @@ IMPORTANT RULES:
         ..._conversationHistory,
       ];
 
+      final tools = [
+        {
+          "type": "function",
+          "function": {
+            "name": "trigger_sos",
+            "description": "Trigger an emergency SOS alert to family members. Use only for emergencies/help.",
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "add_medication",
+            "description": "Add a new medication reminder.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "name": {"type": "string", "description": "The name of the medicine"},
+                "time": {"type": "string", "description": "The time to take the medicine, e.g., '8:00 AM'"},
+                "frequency": {"type": "string", "description": "How often to take it, e.g., 'daily', 'twice daily'"}
+              },
+              "required": ["name", "time", "frequency"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "mark_medication_taken",
+            "description": "Mark the next pending medication as taken.",
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "log_water",
+            "description": "Log that the user drank water.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "amount": {"type": "integer", "description": "Amount in ml. 1 glass = 250."}
+              },
+              "required": ["amount"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "log_wellbeing",
+            "description": "Log the user's current mood or wellbeing.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "mood": {
+                  "type": "string",
+                  "enum": ["happy", "okay", "sad", "unwell"],
+                  "description": "The mood."
+                }
+              },
+              "required": ["mood"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "get_status",
+            "description": "Get the current daily summary of pending medications, hydration, and mood to read out loud.",
+          }
+        }
+      ];
+
       final response = await http.post(
         Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
         headers: {
@@ -94,24 +176,41 @@ IMPORTANT RULES:
         body: jsonEncode({
           'model': 'llama-3.3-70b-versatile',
           'messages': messages,
-          'max_tokens': 200,
+          'tools': tools,
+          'tool_choice': 'auto',
+          'max_tokens': 150,
           'temperature': 0.7,
         }),
       );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final reply =
-            data['choices'][0]['message']['content'] as String? ?? '';
+        final message = data['choices'][0]['message'];
+        
+        // Check for tool calls
+        if (message['tool_calls'] != null && (message['tool_calls'] as List).isNotEmpty) {
+          final toolCall = message['tool_calls'][0];
+          final function = toolCall['function'];
+          final name = function['name'];
+          final args = jsonDecode(function['arguments'] as String);
+          
+          // Add tool call to history so context isn't lost
+          _conversationHistory.add(message);
+          
+          return AIResponse(toolName: name, toolArgs: args);
+        }
+
+        // Just regular text response
+        final reply = message['content'] as String? ?? '';
         _conversationHistory.add({'role': 'assistant', 'content': reply});
-        return reply.trim();
+        return AIResponse(text: reply.trim());
       } else {
         debugPrint('Groq API error: ${response.statusCode} ${response.body}');
-        return 'Sorry, I could not process that. Please try again.';
+        return AIResponse(text: 'Sorry, I could not process that. Please try again.');
       }
     } catch (e) {
       debugPrint('AI Service error: $e');
-      return 'I am having trouble connecting. Please check your internet.';
+      return AIResponse(text: 'I am having trouble connecting. Please check your internet.');
     }
   }
 }

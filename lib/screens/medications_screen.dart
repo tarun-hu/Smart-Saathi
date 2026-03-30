@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/supabase_service.dart';
 import '../services/voice_service.dart';
+import '../services/ai_service.dart';
 import '../models/medication.dart';
 
 class MedicationsScreen extends StatefulWidget {
@@ -296,17 +297,18 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
           }
 
           _voice.startListening((text) async {
-            final cmd = _voice.parseCommand(text);
-            if (cmd.type == CommandType.medAdd) {
-              final name = cmd.data?['name'] ?? '';
-              final time = cmd.data?['time'] ?? '8:00 AM';
-              final freq = cmd.data?['frequency'] ?? 'daily';
+            final aiResponse = await AIService.instance.chat(text);
+            if (aiResponse.isToolCall && aiResponse.toolName == 'add_medication') {
+              final args = aiResponse.toolArgs ?? {};
+              final name = args['name'] as String? ?? '';
+              final time = args['time'] as String? ?? '8:00 AM';
+              final freq = args['frequency'] as String? ?? 'daily';
               if (name.isNotEmpty) {
                 try {
                   final medication =
                       await _supabase.addMedication(name, '1 tablet', time, freq);
                   _upsertMedication(medication);
-                  unawaited(_voice.speak('Added $name at $time'));
+                  unawaited(_speakIfReady('Added $name at $time'));
                 } catch (e) {
                   _showSnack(
                       'Could not add medicine by voice: ${_friendlyError(e)}');
