@@ -16,7 +16,7 @@ class MedicationsScreen extends StatefulWidget {
 
 class _MedicationsScreenState extends State<MedicationsScreen> {
   final _supabase = SupabaseService.instance;
-  final _voice = VoiceService();
+  final _voice = VoiceService.instance;
   List<Medication> _medications = [];
   bool _isLoading = true;
   StreamSubscription<List<Medication>>? _medicationsSub;

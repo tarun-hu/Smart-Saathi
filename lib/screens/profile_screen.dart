@@ -14,7 +14,7 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final _supabase = SupabaseService.instance;
-  final _voice = VoiceService();
+  final _voice = VoiceService.instance;
   String _name = '';
   String _email = '';
   List<Nominee> _nominees = [];

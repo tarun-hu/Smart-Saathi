@@ -3,8 +3,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class VoiceService extends ChangeNotifier {
+  static final VoiceService instance = VoiceService._();
+  VoiceService._();
+
   final stt.SpeechToText _speech = stt.SpeechToText();
   final FlutterTts _tts = FlutterTts();
 
@@ -31,6 +35,15 @@ class VoiceService extends ChangeNotifier {
 
   Future<void> initialize() async {
     if (_isInitialized) return;
+
+    var status = await Permission.microphone.status;
+    if (!status.isGranted) {
+      status = await Permission.microphone.request();
+      if (!status.isGranted) {
+        debugPrint('Microphone permission denied');
+        return;
+      }
+    }
 
     _isInitialized = await _speech.initialize(
       onError: (error) {

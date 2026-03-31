@@ -21,7 +21,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final _supabase = SupabaseService.instance;
-  final _voice = VoiceService();
+  final _voice = VoiceService.instance;
   late SosService _sos;
   final _notif = NotificationService();
   final _ai = AIService.instance;

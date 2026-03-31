@@ -14,7 +14,7 @@ class HydrationScreen extends StatefulWidget {
 class _HydrationScreenState extends State<HydrationScreen>
     with SingleTickerProviderStateMixin {
   final _supabase = SupabaseService.instance;
-  final _voice = VoiceService();
+  final _voice = VoiceService.instance;
   int _todayMl = 0;
   final int _goalMl = 2000;
   bool _isLoading = true;
