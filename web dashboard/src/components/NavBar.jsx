@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { NavLink } from "react-router-dom";
-import BrandLogo from "../assets/logos/smart_sarthi.png";
+// import BrandLogo from "../assets/logos/smart_sarthi.png";
+import BrandLogo from "../assets/logos/shield.svg?react";
 import { AuthContext } from "../context/AuthContext";
 import { useContext } from "react";
 
@@ -22,10 +23,11 @@ const NavBar = () => {
         className='
             select-none cursor-pointer flex flex-row items-center gap-1
           '>
-        <img src={BrandLogo} className='size-30 -mx-6' />
+        {/* <img src={BrandLogo} className='size-30 -mx-6' /> */}
+        <BrandLogo className="size-12 bg-brand-accent text-white p-1.5 rounded-full border-2 flex flex-col"/>
         <p className='text-4xl font-extrabold text-black'>
           Smart
-          <span className='text-[#2f3192]'>Sarthi</span>
+          <span className='text-brand-accent'>Sarthi</span>
           {/* साथी */}
         </p>
       </NavLink>

@@ -2,7 +2,7 @@ import { Route, Routes } from "react-router-dom";
 import "./App.css";
 import Home from "./pages/Home";
 import About from "./pages/About";
-import Help from "./pages/Help";
+import Features from "./pages/Features";
 import Contact from "./pages/Contact";
 import AuthLayout from "./pages/auth/AuthLayout";
 import { AuthProvider } from "./context/AuthContext";
@@ -20,7 +20,7 @@ function App() {
         <Routes>
           <Route path='/' element={<Home />} />
           <Route path='/about' element={<About />} />
-          <Route path='/help' element={<Help />} />
+          <Route path='/features' element={<Features />} />
           <Route path='/contact' element={<Contact />} />
           <Route path='/login' element={<AuthLayout />} />
           <Route path='/signup' element={<AuthLayout />} />
