@@ -318,19 +318,20 @@ class SupabaseService {
   }
 
   /// Add a health report with multiple image URLs stored as JSON array.
-  Future<void> addHealthReport(String name, String imageUrlOrJson) async {
+  Future<void> addHealthReport(String name, String imageUrlOrJson, {String? aiSummary}) async {
     if (userId == null) return;
     await _client.from('health_reports').insert({
       'user_id': userId!,
       'name': name,
       'image_url': imageUrlOrJson,
+      'ai_summary': aiSummary,
       'timestamp': DateTime.now().toIso8601String(),
     });
   }
 
   /// Convenience: add report with multiple URLs (encodes to JSON).
-  Future<void> addHealthReportMulti(String name, List<String> imageUrls) async {
-    await addHealthReport(name, jsonEncode(imageUrls));
+  Future<void> addHealthReportMulti(String name, List<String> imageUrls, {String? aiSummary}) async {
+    await addHealthReport(name, jsonEncode(imageUrls), aiSummary: aiSummary);
   }
 
   Future<List<HealthReport>> getHealthReports({int limit = 20}) async {

@@ -2,12 +2,37 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:timezone/data/latest.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'app_router.dart';
 import 'services/notification_service.dart';
+
+@pragma('vm:entry-point')
+void notificationTapBackground(NotificationResponse notificationResponse) async {
+  debugPrint('notificationTapBackground: ${notificationResponse.payload}');
+  if (notificationResponse.payload != null && notificationResponse.payload!.startsWith('medication:')) {
+    final parts = notificationResponse.payload!.split(':');
+    if (parts.length > 2) {
+      final medName = parts[2];
+      FlutterTts tts = FlutterTts();
+      await tts.setLanguage('en-IN');
+      await tts.speak('Saathi reminder: Please take your medicine, $medName');
+    }
+  }
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: ".env");
+
+  tz.initializeTimeZones();
+  try {
+    tz.setLocalLocation(tz.getLocation('Asia/Kolkata'));
+  } catch (e) {
+    debugPrint('Timezone initialization error: $e');
+  }
 
   await Supabase.initialize(
     url: dotenv.env['SUPABASE_URL'] ?? '',

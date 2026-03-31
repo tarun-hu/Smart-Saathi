@@ -32,9 +32,11 @@ You help with:
 - Daily health queries (not medical advice, just general wellness tips)
 - Reminders and motivation
 - Friendly conversation to reduce loneliness
+- Navigation within the app
 
 IMPORTANT RULES:
 - Always be encouraging, positive, and caring.
+- If they want to open a page (like "show my reports" or "open profile"), use the navigate_to tool.
 - If asked about emergencies, TRIGGER THE SOS TOOL IMMEDIATELY or tell them to press the SOS button.
 - If they want to log water, use the log_water tool. 1 glass = 250ml.
 - If they want to add a medicine, use the add_medication tool. Ask for time if unclear.
@@ -164,6 +166,24 @@ IMPORTANT RULES:
             "name": "get_status",
             "description": "Get the current daily summary of pending medications, hydration, and mood to read out loud.",
           }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "navigate_to",
+            "description": "Navigate to a specific screen in the app.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "route": {
+                  "type": "string",
+                  "enum": ["/reports", "/medications", "/vitals", "/profile", "/water"],
+                  "description": "The route to navigate to."
+                }
+              },
+              "required": ["route"]
+            }
+          }
         }
       ];
 
@@ -211,6 +231,51 @@ IMPORTANT RULES:
     } catch (e) {
       debugPrint('AI Service error: $e');
       return AIResponse(text: 'I am having trouble connecting. Please check your internet.');
+    }
+  }
+
+  Future<String> generateReportSummary(String base64Image) async {
+    if (!isConfigured) return "AI not configured.";
+    
+    try {
+      final response = await http.post(
+        Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_apiKey',
+        },
+        body: jsonEncode({
+          'model': 'llama-3.2-11b-vision-preview',
+          'messages': [
+            {
+              'role': 'user',
+              'content': [
+                {
+                  'type': 'text',
+                  'text': 'Analyze this health report carefully. Summarize the key findings and predict the outcome or what it means in 2 short, simple sentences suitable for a senior to understand.'
+                },
+                {
+                  'type': 'image_url',
+                  'image_url': {
+                    'url': 'data:image/jpeg;base64,$base64Image',
+                  }
+                }
+              ]
+            }
+          ],
+          'max_tokens': 150,
+          'temperature': 0.4,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['choices'][0]['message']['content']?.trim() ?? "Unable to analyze report.";
+      }
+      return "Failed to analyze report.";
+    } catch (e) {
+      debugPrint('Vision API error: $e');
+      return "Error analyzing report.";
     }
   }
 }

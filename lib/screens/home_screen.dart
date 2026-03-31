@@ -238,7 +238,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               await _voice.speak(_voice.isHindi
                   ? 'दवाई "$medName" जोड़ दी गई, $time पर याद दिलाऊंगा'
                   : 'Medicine "$medName" added. I\'ll remind you at $time');
-              _notif.showMedicationReminder(
+              _notif.scheduleMedicationReminder(
                 id: DateTime.now().millisecondsSinceEpoch % 100000,
                 medName: medName,
                 dosage: '1 tablet',
@@ -291,6 +291,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           await _voice.speak(_voice.isHindi
               ? 'आज: $_pendingMeds दवाइयाँ बाकी, $_hydrationMl ml पानी पिया, मूड: ${_todayMood ?? "अभी तक नहीं"}'
               : 'Today: $_pendingMeds meds pending, ${_hydrationMl}ml water, mood: ${_todayMood ?? "not logged yet"}');
+          break;
+        case 'navigate_to':
+          final target = args['target'] as String? ?? '/home';
+          if (mounted) {
+            context.go(target);
+            await _voice.speak(_voice.isHindi
+                ? 'पीछे ले जा रहा हूँ।'
+                : 'Taking you there now.');
+          }
           break;
         default:
           await _voice.speak(_voice.isHindi

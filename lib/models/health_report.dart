@@ -6,6 +6,7 @@ class HealthReport {
   final String name;
   final List<String> imageUrls;
   final DateTime timestamp;
+  final String? aiSummary;
 
   HealthReport({
     required this.id,
@@ -13,6 +14,7 @@ class HealthReport {
     required this.name,
     required this.imageUrls,
     required this.timestamp,
+    this.aiSummary,
   });
 
   /// Backward-compatible: if image_url is a JSON array string, parse it.
@@ -21,7 +23,6 @@ class HealthReport {
     List<String> urls = [];
     final rawUrl = json['image_url'];
     if (rawUrl is String) {
-      // Try to parse as JSON array
       if (rawUrl.startsWith('[')) {
         try {
           final parsed = jsonDecode(rawUrl) as List;
@@ -40,13 +41,12 @@ class HealthReport {
       name: json['name'] as String,
       imageUrls: urls,
       timestamp: DateTime.parse(json['timestamp'] as String),
+      aiSummary: json['ai_summary'] as String?,
     );
   }
 
-  /// First image URL for thumbnail display
   String get thumbnailUrl => imageUrls.isNotEmpty ? imageUrls.first : '';
 
-  /// Number of pages/images
   int get pageCount => imageUrls.length;
 
   Map<String, dynamic> toJson() {
@@ -55,6 +55,7 @@ class HealthReport {
       'name': name,
       'image_url': jsonEncode(imageUrls),
       'timestamp': timestamp.toIso8601String(),
+      'ai_summary': aiSummary,
     };
   }
 }

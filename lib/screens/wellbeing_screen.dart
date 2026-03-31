@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
+import 'dart:convert';
 import '../services/supabase_service.dart';
+import '../services/ai_service.dart';
 import '../models/health_report.dart';
 import '../models/vital_log.dart';
 
@@ -196,7 +198,17 @@ class _WellbeingScreenState extends State<WellbeingScreen>
     try {
       final files = images.map((x) => File(x.path)).toList();
       final imageUrls = await _supabase.uploadReportImages(files);
-      await _supabase.addHealthReportMulti(reportName, imageUrls);
+      
+      String? summary;
+      try {
+        final bytes = await files.first.readAsBytes();
+        final base64Image = base64Encode(bytes);
+        summary = await AIService.instance.generateReportSummary(base64Image);
+      } catch (e) {
+        debugPrint('Failed to generate summary: $e');
+      }
+
+      await _supabase.addHealthReportMulti(reportName, imageUrls, aiSummary: summary);
       await _loadData();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1078,7 +1090,7 @@ class _ReportViewerScreenState extends State<ReportViewerScreen> {
                 // Swipe hint for multi-page
                 if (report.pageCount > 1 && _currentPage == 0)
                   Positioned(
-                    bottom: 60,
+                    bottom: (report.aiSummary != null && report.aiSummary!.isNotEmpty) ? 160 : 60,
                     left: 0,
                     right: 0,
                     child: Center(
@@ -1093,6 +1105,36 @@ class _ReportViewerScreenState extends State<ReportViewerScreen> {
                           style: GoogleFonts.poppins(
                               fontSize: 12, color: Colors.white70),
                         ),
+                      ),
+                    ),
+                  ),
+
+                // AI Summary Overlay
+                if (report.aiSummary != null && report.aiSummary!.isNotEmpty)
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF1E1E1E),
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.auto_awesome, color: Colors.yellow, size: 20),
+                              const SizedBox(width: 8),
+                              Text('AI Summary', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(report.aiSummary!, style: GoogleFonts.poppins(color: Colors.white70, fontSize: 14)),
+                          const SizedBox(height: 16), // Padding for swipe indicator 
+                        ],
                       ),
                     ),
                   ),
