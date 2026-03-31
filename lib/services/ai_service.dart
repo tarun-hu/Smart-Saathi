@@ -212,7 +212,16 @@ IMPORTANT RULES:
           final toolCall = message['tool_calls'][0];
           final function = toolCall['function'];
           final name = function['name'];
-          final args = jsonDecode(function['arguments'] as String);
+          dynamic args;
+          if (function['arguments'] is String) {
+            try {
+              args = jsonDecode(function['arguments']);
+            } catch (_) {
+              args = {};
+            }
+          } else {
+            args = function['arguments'] ?? {};
+          }
           
           // Add tool call to history so context isn't lost
           _conversationHistory.add(message);
@@ -245,7 +254,7 @@ IMPORTANT RULES:
           'Authorization': 'Bearer $_apiKey',
         },
         body: jsonEncode({
-          'model': 'llama-3.2-11b-vision-preview',
+          'model': 'llama-3.2-90b-vision-preview',
           'messages': [
             {
               'role': 'user',

@@ -116,9 +116,9 @@ class VoiceService extends ChangeNotifier {
       },
       localeId: _currentLocale,
       listenFor: const Duration(seconds: 30),
-      pauseFor: const Duration(seconds: 3),
+      pauseFor: const Duration(seconds: 2),
       listenOptions: stt.SpeechListenOptions(
-        listenMode: stt.ListenMode.dictation,
+        listenMode: stt.ListenMode.search,
         cancelOnError: true,
         partialResults: true,
       ),
@@ -213,7 +213,8 @@ class VoiceService extends ChangeNotifier {
           }
         },
         localeId: _currentLocale,
-        listenFor: const Duration(seconds: 5),
+        listenFor: const Duration(minutes: 10),
+        pauseFor: const Duration(minutes: 10),
         listenOptions: stt.SpeechListenOptions(
           listenMode: stt.ListenMode.dictation,
           cancelOnError: false,
