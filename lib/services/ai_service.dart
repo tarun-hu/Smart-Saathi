@@ -223,8 +223,11 @@ IMPORTANT RULES:
             args = function['arguments'] ?? {};
           }
           
-          // Add tool call to history so context isn't lost
-          _conversationHistory.add(message);
+          // We do not add the raw message with tool_calls to the history 
+          // because Groq requires a corresponding 'tool'/'function' response right after it.
+          // Since we execute the action locally and speak the result directly, 
+          // we should just log the user intent as a system status if needed, 
+          // but omitted here to prevent a 400 Bad Request on the next chat turn.
           
           return AIResponse(toolName: name, toolArgs: args);
         }
