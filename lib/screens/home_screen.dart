@@ -150,11 +150,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     // Stop wake word mode temporarily
     _voice.stopWakeWordListening();
 
-    setState(() {
-      _isVoiceActive = true;
+    if (mounted) {
+      setState(() {
+        _isVoiceActive = true;
       _voiceStatus = _voice.isHindi ? 'सुन रहा हूँ...' : 'Listening...';
       _aiResponse = '';
-    });
+      });
+    }
 
     await _voice.speak(_voice.isHindi
         ? 'मैं सुन रहा हूँ, बताइए क्या मदद चाहिए?'
@@ -172,13 +174,29 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
+  void _returnVoiceToOriginalState() {
+    if (_voice.isListening) {
+      _voice.stopListening();
+    }
+
+    if (mounted) {
+      setState(() {
+        _isVoiceActive = false;
+        _isConversationMode = false;
+        _voiceStatus = '';
+      });
+    }
+
+    _startWakeWordMode();
+  }
+
   /// After AI responds, stay in conversation mode for a few seconds
   void _enterConversationMode() {
     _conversationTimer?.cancel();
     _isConversationMode = true;
 
-    // Wait for TTS to finish, then listen for 8 more seconds
-    _conversationTimer = Timer(const Duration(seconds: 2), () {
+    // TTS now waits for completion, so only keep a tiny handoff delay here.
+    _conversationTimer = Timer(const Duration(milliseconds: 400), () {
       if (!mounted || !_isConversationMode) return;
 
       setState(() {
@@ -195,15 +213,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         },
       );
 
-      // Auto-exit conversation mode after timeout
-      _conversationTimer = Timer(const Duration(seconds: 10), () {
+      // Auto-exit conversation mode after a short follow-up window.
+      _conversationTimer = Timer(const Duration(seconds: 5), () {
         if (!mounted) return;
-        setState(() {
-          _isVoiceActive = false;
-          _isConversationMode = false;
-          _voiceStatus = '';
-        });
-        _startWakeWordMode();
+        _returnVoiceToOriginalState();
       });
     });
   }
@@ -211,14 +224,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Future<void> _processCommand(String text) async {
     _conversationTimer?.cancel();
     _voice.setProcessing(true);
+    var shouldEnterConversationMode = true;
 
-    setState(() {
+    if (mounted) {
+      setState(() {
       _isVoiceActive = false;
       _lastCommand = text;
       _voiceStatus = _voice.isHindi ? 'सोच रहा हूँ...' : 'Processing...';
-    });
+      });
+    }
 
-    final aiResponse = await _ai.chat(text);
+    try {
+      final aiResponse = await _ai.chat(text);
 
     if (aiResponse.isToolCall) {
       final name = aiResponse.toolName;
@@ -238,7 +255,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               await _voice.speak(_voice.isHindi
                   ? 'दवाई "$medName" जोड़ दी गई, $time पर याद दिलाऊंगा'
                   : 'Medicine "$medName" added. I\'ll remind you at $time');
-              _notif.scheduleMedicationReminder(
+              await _notif.scheduleMedicationReminder(
                 id: DateTime.now().millisecondsSinceEpoch % 100000,
                 medName: medName,
                 dosage: '1 tablet',
@@ -274,7 +291,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         case 'log_water':
           final amount = args['amount'] as int? ?? 250;
           await _supabase.addHydration(amount);
-          setState(() => _hydrationMl += amount);
+          if (mounted) setState(() => _hydrationMl += amount);
           await _voice.speak(_voice.isHindi
               ? '$amount ml पानी लॉग किया। आज कुल $_hydrationMl ml'
               : '$amount ml water logged. Today total: $_hydrationMl ml');
@@ -282,7 +299,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         case 'log_wellbeing':
           final mood = args['mood'] as String? ?? 'okay';
           await _supabase.addWellbeingLog(mood);
-          setState(() => _todayMood = mood);
+          if (mounted) setState(() => _todayMood = mood);
           await _voice.speak(_voice.isHindi
               ? 'आपका मूड "$mood" लॉग किया गया'
               : 'Mood logged as "$mood"');
@@ -293,13 +310,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               : 'Today: $_pendingMeds meds pending, ${_hydrationMl}ml water, mood: ${_todayMood ?? "not logged yet"}');
           break;
         case 'navigate_to':
-          final target = args['target'] as String? ?? '/home';
+          final route = (args['route'] ?? args['target']) as String? ?? '/home';
+          shouldEnterConversationMode = route == '/home';
           if (mounted) {
-            context.go(target);
-            await _voice.speak(_voice.isHindi
+            context.go(route);
+          }
+          await _voice.speak(_voice.isHindi
                 ? 'पीछे ले जा रहा हूँ।'
                 : 'Taking you there now.');
-          }
           break;
         default:
           await _voice.speak(_voice.isHindi
@@ -307,7 +325,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               : 'I am not sure how to do that.');
       }
     } else if (aiResponse.text != null && aiResponse.text!.isNotEmpty) {
-      setState(() => _aiResponse = aiResponse.text!);
+      if (mounted) setState(() => _aiResponse = aiResponse.text!);
       await _voice.speak(aiResponse.text!);
     } else {
       await _voice.speak(_voice.isHindi
@@ -315,12 +333,24 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           : 'I didn\'t understand that. Please try again.');
     }
 
-    await _loadData();
-    _voice.setProcessing(false);
-    setState(() => _voiceStatus = '');
+      await _loadData();
+    } catch (e) {
+      debugPrint('Voice command error: $e');
+      try {
+        await _voice.speak('Something went wrong. Please try again.');
+      } catch (speakError) {
+        debugPrint('Fallback speak error: $speakError');
+      }
+    } finally {
+      _voice.setProcessing(false);
+      if (!mounted) return;
+      setState(() => _voiceStatus = '');
 
-    // After processing, enter conversation mode briefly
-    _enterConversationMode();
+      if (shouldEnterConversationMode) {
+        // After processing, enter conversation mode briefly
+        _enterConversationMode();
+      }
+    }
   }
 
   // ──── SOS ──────────────────────────────────────
@@ -425,7 +455,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void dispose() {
     _conversationTimer?.cancel();
     _voice.stopWakeWordListening();
-    _voice.dispose();
     _pulseController.dispose();
     _sosGlowController.dispose();
     if (_sos.isActive) _sos.stopSos();

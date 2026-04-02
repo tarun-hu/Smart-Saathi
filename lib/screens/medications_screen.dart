@@ -233,7 +233,7 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
   @override
   void dispose() {
     _medicationsSub?.cancel();
-    _voice.dispose();
+    _voice.stopListening();
     super.dispose();
   }
 

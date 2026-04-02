@@ -310,7 +310,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   void dispose() {
-    _voice.dispose();
+    _voice.stopListening();
     super.dispose();
   }
 
