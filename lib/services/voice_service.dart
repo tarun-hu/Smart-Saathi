@@ -20,7 +20,10 @@ class VoiceService extends ChangeNotifier {
   String _lastRecognized = '';
   String _currentLocale = 'en-IN';
   int _wakeWordRetryCount = 0;
+  int _wakeWordShortSessionCount = 0;
   Timer? _restartTimer;
+  bool _resumeWakeWordAfterSpeech = false;
+  DateTime? _wakeWordSessionStartedAt;
 
   bool get isListening => _isListening;
   bool get isSpeaking => _isSpeaking;
@@ -30,6 +33,10 @@ class VoiceService extends ChangeNotifier {
   String get currentLocale => _currentLocale;
   bool get isHindi => _currentLocale == 'hi-IN';
   bool get isInitialized => _isInitialized;
+  bool get supportsWakeWordMode =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
 
   Function(String)? _onWakeWordDetected;
 
@@ -56,21 +63,29 @@ class VoiceService extends ChangeNotifier {
             ? Duration(seconds: 2 + _wakeWordRetryCount)
             : Duration(seconds: 1);
 
-        if (_isWakeWordMode && !_isProcessing) {
+        if (_isWakeWordMode && !_isProcessing && !_isSpeaking) {
           _scheduleWakeWordRestart(delay);
         }
       },
       onStatus: (status) {
         debugPrint('Speech status: $status');
-        if (status == 'notListening' || status == 'done') {
+        if (status == 'listening') {
+          _wakeWordSessionStartedAt = DateTime.now();
+          _isListening = true;
+          notifyListeners();
+          return;
+        }
+
+        if (status == 'done') {
           _isListening = false;
           notifyListeners();
-          // Auto-restart wake word mode if active and not processing
-          if (_isWakeWordMode && !_isProcessing) {
-            _scheduleWakeWordRestart(
-              Duration(milliseconds: 500 + (_wakeWordRetryCount * 200)),
-            );
-          }
+          return;
+        }
+
+        if (status == 'notListening') {
+          _isListening = false;
+          notifyListeners();
+          _handleWakeWordSessionEnded();
         }
       },
     );
@@ -79,11 +94,21 @@ class VoiceService extends ChangeNotifier {
     await _tts.setSpeechRate(0.45);
     await _tts.setVolume(1.0);
     await _tts.setPitch(1.0);
+    await _tts.awaitSpeakCompletion(true);
 
-    _tts.setCompletionHandler(() {
-      _isSpeaking = false;
+    _tts.setStartHandler(() {
+      _isSpeaking = true;
       notifyListeners();
-      // Listening should already be handling itself now that we removed the speak lock
+    });
+    _tts.setCompletionHandler(() {
+      _finishSpeaking();
+    });
+    _tts.setCancelHandler(() {
+      _finishSpeaking();
+    });
+    _tts.setErrorHandler((message) {
+      debugPrint('TTS error: $message');
+      _finishSpeaking();
     });
 
     final prefs = await SharedPreferences.getInstance();
@@ -111,6 +136,9 @@ class VoiceService extends ChangeNotifier {
 
     // Pause wake word mode during active listening
     final wasWakeMode = _isWakeWordMode;
+    if (wasWakeMode) {
+      _isWakeWordMode = false;
+    }
     _cancelRestartTimer();
 
     _speech.listen(
@@ -159,15 +187,28 @@ class VoiceService extends ChangeNotifier {
   // ──── WAKE WORD DETECTION ──────────────────────
 
   void startWakeWordListening(Function(String) onWakeWordDetected) {
-    _isWakeWordMode = true;
     _onWakeWordDetected = onWakeWordDetected;
     _wakeWordRetryCount = 0;
+    _wakeWordShortSessionCount = 0;
+    _wakeWordSessionStartedAt = null;
+    _cancelRestartTimer();
+
+    if (!supportsWakeWordMode) {
+      _isWakeWordMode = false;
+      debugPrint('Wake word mode is unavailable on this platform. Use tap to speak.');
+      notifyListeners();
+      return;
+    }
+
+    _isWakeWordMode = true;
     _startWakeWordListeningInternal();
   }
 
   void stopWakeWordListening() {
     _isWakeWordMode = false;
     _onWakeWordDetected = null;
+    _wakeWordShortSessionCount = 0;
+    _wakeWordSessionStartedAt = null;
     _cancelRestartTimer();
     if (_isListening) {
       _speech.stop();
@@ -188,9 +229,49 @@ class VoiceService extends ChangeNotifier {
     });
   }
 
+  void _handleWakeWordSessionEnded() {
+    if (!_isWakeWordMode || !_isInitialized || _isProcessing || _isSpeaking) {
+      _wakeWordSessionStartedAt = null;
+      return;
+    }
+
+    final sessionStartedAt = _wakeWordSessionStartedAt;
+    _wakeWordSessionStartedAt = null;
+
+    final endedTooQuickly = sessionStartedAt != null &&
+        DateTime.now().difference(sessionStartedAt) <
+            const Duration(milliseconds: 1200);
+
+    if (endedTooQuickly) {
+      _wakeWordShortSessionCount++;
+    } else {
+      _wakeWordShortSessionCount = 0;
+    }
+
+    if (_wakeWordShortSessionCount >= 3) {
+      debugPrint(
+        'Wake word listening is unstable on this device. Falling back to tap-to-speak.',
+      );
+      _isWakeWordMode = false;
+      _wakeWordRetryCount = 0;
+      notifyListeners();
+      return;
+    }
+
+    final restartDelay = endedTooQuickly
+        ? Duration(milliseconds: 1200 + (_wakeWordShortSessionCount * 400))
+        : const Duration(milliseconds: 350);
+
+    _scheduleWakeWordRestart(restartDelay);
+  }
+
   void _startWakeWordListeningInternal() {
-    // Note: removed _isSpeaking check to allow "barge-in" interruptions
-    if (!_isInitialized || !_isWakeWordMode || _isListening || _isProcessing) {
+    if (!_isInitialized ||
+        !supportsWakeWordMode ||
+        !_isWakeWordMode ||
+        _isListening ||
+        _isProcessing ||
+        _isSpeaking) {
       return;
     }
 
@@ -226,14 +307,15 @@ class VoiceService extends ChangeNotifier {
           }
         },
         localeId: _currentLocale,
-        listenFor: const Duration(minutes: 10),
-        pauseFor: const Duration(minutes: 10),
+        listenFor: const Duration(seconds: 6),
+        pauseFor: const Duration(seconds: 2),
         listenOptions: stt.SpeechListenOptions(
-          listenMode: stt.ListenMode.dictation,
+          listenMode: stt.ListenMode.search,
           cancelOnError: false,
           partialResults: true,
         ),
       );
+      _wakeWordSessionStartedAt = DateTime.now();
       _isListening = true;
       notifyListeners();
     } catch (e) {
@@ -241,7 +323,7 @@ class VoiceService extends ChangeNotifier {
       _wakeWordRetryCount++;
       // Cap retry delay at 5 seconds
       if (_wakeWordRetryCount > 5) _wakeWordRetryCount = 5;
-      if (_isWakeWordMode && !_isProcessing) {
+      if (_isWakeWordMode && !_isProcessing && !_isSpeaking) {
         _scheduleWakeWordRestart(
           Duration(seconds: 1 + _wakeWordRetryCount),
         );
@@ -274,26 +356,48 @@ class VoiceService extends ChangeNotifier {
 
   Future<void> speak(String text) async {
     if (text.isEmpty) return;
-    if (!_isWakeWordMode) {
-      _cancelRestartTimer();
-      if (_isListening) {
-        _speech.stop();
-        _isListening = false;
-      }
-    } else {
-      if (!_isListening && !_isProcessing) {
-        _startWakeWordListeningInternal();
-      }
-    }
+    _resumeWakeWordAfterSpeech = _isWakeWordMode && !_isProcessing;
+    _cancelRestartTimer();
     _isSpeaking = true;
     notifyListeners();
-    await _tts.speak(text);
+
+    if (_isListening) {
+      await _speech.stop();
+      _isListening = false;
+      notifyListeners();
+    }
+
+    try {
+      await _tts.speak(text);
+    } catch (e) {
+      debugPrint('TTS speak error: $e');
+      _finishSpeaking();
+      rethrow;
+    }
   }
 
   Future<void> stop() async {
+    _resumeWakeWordAfterSpeech = false;
     await _tts.stop();
     _isSpeaking = false;
     notifyListeners();
+  }
+
+  void _finishSpeaking() {
+    final shouldResumeWakeWord = _resumeWakeWordAfterSpeech;
+    _resumeWakeWordAfterSpeech = false;
+
+    if (_isSpeaking) {
+      _isSpeaking = false;
+      notifyListeners();
+    }
+
+    if (shouldResumeWakeWord &&
+        _isWakeWordMode &&
+        !_isProcessing &&
+        !_isListening) {
+      _startWakeWordListeningInternal();
+    }
   }
 
   @override

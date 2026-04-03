@@ -52,6 +52,7 @@ class _HydrationScreenState extends State<HydrationScreen>
 
   Future<void> _addWater(int ml) async {
     await _supabase.addHydration(ml);
+    if (!mounted) return;
     setState(() => _todayMl += ml);
 
     final glassesDone = (_todayMl / 250).floor();
@@ -71,7 +72,7 @@ class _HydrationScreenState extends State<HydrationScreen>
   @override
   void dispose() {
     _waveController.dispose();
-    _voice.dispose();
+    _voice.stopListening();
     super.dispose();
   }
 
