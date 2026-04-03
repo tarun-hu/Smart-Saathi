@@ -1,6 +1,5 @@
 import { Button } from "@/components/ui/button";
 import { NavLink } from "react-router-dom";
-// import BrandLogo from "../assets/logos/smart_sarthi.png";
 import BrandLogo from "../assets/logos/shield.svg?react";
 import { AuthContext } from "../context/AuthContext";
 import { useContext } from "react";
@@ -13,6 +12,7 @@ const NavBar = () => {
     <div
       id='navbar'
       className='
+        w-full
         flex
         h-22
         py-14 px-30
@@ -23,12 +23,14 @@ const NavBar = () => {
         className='
             select-none cursor-pointer flex flex-row items-center gap-1
           '>
-        {/* <img src={BrandLogo} className='size-30 -mx-6' /> */}
-        <BrandLogo className="size-12 bg-brand-accent text-white p-1.5 rounded-full border-2 flex flex-col"/>
-        <p className='text-4xl font-extrabold text-black'>
+        <BrandLogo className='size-11 bg-brand-accent text-white p-1.5 rounded-2xl border-2 flex flex-col' />
+        {/* <p className='text-4xl font-extrabold text-black'>
           Smart
           <span className='text-brand-accent'>Sarthi</span>
-          {/* साथी */}
+          साथी
+        </p> */}
+        <p className=' text-4xl font-extrabold text-neutral-200 '>
+          SmartSarthi
         </p>
       </NavLink>
 
@@ -40,10 +42,10 @@ const NavBar = () => {
           <NavLink to={"/about"}>About Us</NavLink>
         </Button>
         <Button size='md' asChild variant='link'>
-          <NavLink to={"/contact"}>Contact</NavLink>
+          <NavLink to={"/features"}>Features</NavLink>
         </Button>
         <Button size='md' asChild variant='link'>
-          <NavLink to={"/help"}>Help</NavLink>
+          <NavLink to={"/contact"}>Contact</NavLink>
         </Button>
         {!user ? (
           <>
