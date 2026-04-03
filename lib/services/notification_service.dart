@@ -1,6 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:timezone/timezone.dart' as tz;
+import 'package:intl/intl.dart';
+import '../main.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -31,6 +34,7 @@ class NotificationService {
     await _notifications.initialize(
       initSettings,
       onDidReceiveNotificationResponse: _onNotificationTap,
+      onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
     );
 
     // Request permissions on Android 13+
@@ -48,7 +52,7 @@ class NotificationService {
 
   // ──── MEDICATION REMINDERS ─────────────────────
 
-  Future<void> showMedicationReminder({
+  Future<void> scheduleMedicationReminder({
     required int id,
     required String medName,
     required String dosage,
@@ -81,12 +85,37 @@ class NotificationService {
       iOS: iosDetails,
     );
 
-    await _notifications.show(
+    DateTime parsedTime;
+    try {
+      parsedTime = DateFormat('h:mm a').parse(time);
+    } catch (e) {
+      try {
+        parsedTime = DateFormat('HH:mm').parse(time);
+      } catch (e) {
+        parsedTime = DateTime.now().add(const Duration(minutes: 5));
+      }
+    }
+
+    final now = DateTime.now();
+    var scheduleDate = DateTime(now.year, now.month, now.day, parsedTime.hour, parsedTime.minute);
+    
+    if (scheduleDate.isBefore(now)) {
+      scheduleDate = scheduleDate.add(const Duration(days: 1));
+    }
+
+    final tzDate = tz.TZDateTime.from(scheduleDate, tz.local);
+
+    await _notifications.zonedSchedule(
       id,
       '💊 Time for $medName',
       'Take $dosage - Scheduled at $time',
+      tzDate,
       details,
-      payload: 'medication:$id',
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      payload: 'medication:$id:$medName',
+      matchDateTimeComponents: DateTimeComponents.time,
     );
   }
 

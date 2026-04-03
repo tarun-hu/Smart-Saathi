@@ -1,9 +1,13 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/medication.dart';
 import '../models/nominee.dart';
 import '../models/hydration_log.dart';
 import '../models/wellbeing_log.dart';
 import '../models/sos_event.dart';
+import '../models/health_report.dart';
+import '../models/vital_log.dart';
 
 class SupabaseService {
   final SupabaseClient _client;
@@ -118,17 +122,73 @@ class SupabaseService {
     return result.map<Medication>((m) => Medication.fromJson(m)).toList();
   }
 
-  Future<void> addMedication(
+  Future<Medication> addMedication(
       String name, String dosage, String time, String frequency) async {
-    if (userId == null) return;
-    await _client.from('medications').insert({
+    if (userId == null) {
+      throw Exception('Please log in again to add medication.');
+    }
+    final inserted = await _insertMedicationWithDoseFallback({
       'user_id': userId!,
       'name': name,
-      'dosage': dosage,
       'time': time,
       'frequency': frequency,
       'status': 'pending',
-    });
+    }, dosage);
+    return Medication.fromJson(_normalizeMedicationRow(inserted));
+  }
+
+  Future<void> updateMedication(
+      String id, String name, String dosage, String time, String frequency) async {
+    await _updateMedicationWithDoseFallback(id, {
+      'name': name,
+      'time': time,
+      'frequency': frequency,
+    }, dosage);
+  }
+
+  Future<Map<String, dynamic>> _insertMedicationWithDoseFallback(
+      Map<String, dynamic> payload, String dosage) async {
+    try {
+      return await _client.from('medications').insert({
+        ...payload,
+        'dose': dosage,
+      }).select().single();
+    } on PostgrestException catch (e) {
+      if (!_isMedicationDoseSchemaMismatch(e)) rethrow;
+      return await _client.from('medications').insert({
+        ...payload,
+        'dosage': dosage,
+      }).select().single();
+    }
+  }
+
+  Future<void> _updateMedicationWithDoseFallback(
+      String id, Map<String, dynamic> payload, String dosage) async {
+    try {
+      await _client.from('medications').update({
+        ...payload,
+        'dose': dosage,
+      }).eq('id', id);
+    } on PostgrestException catch (e) {
+      if (!_isMedicationDoseSchemaMismatch(e)) rethrow;
+      await _client.from('medications').update({
+        ...payload,
+        'dosage': dosage,
+      }).eq('id', id);
+    }
+  }
+
+  bool _isMedicationDoseSchemaMismatch(PostgrestException e) {
+    final details = '${e.message} ${e.details ?? ''} ${e.hint ?? ''}'.toLowerCase();
+    return details.contains('dose') || details.contains('dosage');
+  }
+
+  Map<String, dynamic> _normalizeMedicationRow(Map<String, dynamic> row) {
+    if (row.containsKey('dosage') || !row.containsKey('dose')) return row;
+    return {
+      ...row,
+      'dosage': row['dose'],
+    };
   }
 
   Future<void> updateMedicationStatus(String id, String status) async {
@@ -147,13 +207,18 @@ class SupabaseService {
 
   Future<int> getTodayHydration() async {
     if (userId == null) return 0;
+    
     final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
+    // Start of local day, converted to UTC for database comparison
+    final startOfDayLocal = DateTime(now.year, now.month, now.day);
+    final startOfDayUtc = startOfDayLocal.toUtc().toIso8601String();
+    
     final result = await _client
         .from('hydration_logs')
         .select('amount')
         .eq('user_id', userId!)
-        .gte('timestamp', startOfDay);
+        .gte('timestamp', startOfDayUtc);
+        
     int total = 0;
     for (final row in result) {
       total += (row['amount'] as int? ?? 250);
@@ -163,14 +228,18 @@ class SupabaseService {
 
   Future<List<HydrationLog>> getTodayHydrationLogs() async {
     if (userId == null) return [];
+    
     final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
+    final startOfDayLocal = DateTime(now.year, now.month, now.day);
+    final startOfDayUtc = startOfDayLocal.toUtc().toIso8601String();
+    
     final result = await _client
         .from('hydration_logs')
         .select()
         .eq('user_id', userId!)
-        .gte('timestamp', startOfDay)
+        .gte('timestamp', startOfDayUtc)
         .order('timestamp', ascending: false);
+        
     return result.map<HydrationLog>((m) => HydrationLog.fromJson(m)).toList();
   }
 
@@ -179,7 +248,7 @@ class SupabaseService {
     await _client.from('hydration_logs').insert({
       'user_id': userId!,
       'amount': amountMl,
-      'timestamp': DateTime.now().toIso8601String(),
+      'timestamp': DateTime.now().toUtc().toIso8601String(),
     });
   }
 
@@ -221,6 +290,106 @@ class SupabaseService {
         .maybeSingle();
     if (result == null) return null;
     return WellbeingLog.fromJson(result);
+  }
+
+  // ──── HEALTH REPORTS ───────────────────────────
+
+  /// Upload a single report image and return its public URL.
+  Future<String> uploadReportImage(File imageFile) async {
+    if (userId == null) throw Exception('Not logged in');
+    final fileName =
+        '$userId/${DateTime.now().millisecondsSinceEpoch}.jpg';
+    await _client.storage.from('health-reports').upload(fileName, imageFile);
+    return _client.storage.from('health-reports').getPublicUrl(fileName);
+  }
+
+  /// Upload multiple report images and return list of public URLs.
+  Future<List<String>> uploadReportImages(List<File> imageFiles) async {
+    if (userId == null) throw Exception('Not logged in');
+    final urls = <String>[];
+    for (int i = 0; i < imageFiles.length; i++) {
+      final fileName =
+          '$userId/${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
+      await _client.storage.from('health-reports').upload(fileName, imageFiles[i]);
+      final url = _client.storage.from('health-reports').getPublicUrl(fileName);
+      urls.add(url);
+    }
+    return urls;
+  }
+
+  /// Add a health report with multiple image URLs stored as JSON array.
+  Future<void> addHealthReport(String name, String imageUrlOrJson, {String? aiSummary}) async {
+    if (userId == null) return;
+    await _client.from('health_reports').insert({
+      'user_id': userId!,
+      'name': name,
+      'image_url': imageUrlOrJson,
+      'ai_summary': aiSummary,
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+  }
+
+  /// Convenience: add report with multiple URLs (encodes to JSON).
+  Future<void> addHealthReportMulti(String name, List<String> imageUrls, {String? aiSummary}) async {
+    await addHealthReport(name, jsonEncode(imageUrls), aiSummary: aiSummary);
+  }
+
+  Future<List<HealthReport>> getHealthReports({int limit = 20}) async {
+    if (userId == null) return [];
+    final result = await _client
+        .from('health_reports')
+        .select()
+        .eq('user_id', userId!)
+        .order('timestamp', ascending: false)
+        .limit(limit);
+    return result.map<HealthReport>((m) => HealthReport.fromJson(m)).toList();
+  }
+
+  Future<void> deleteHealthReport(String id) async {
+    await _client.from('health_reports').delete().eq('id', id);
+  }
+
+  // ──── VITAL LOGS ───────────────────────────────
+
+  Future<void> addVitalLog({
+    required String type,
+    double? value,
+    int? systolic,
+    int? diastolic,
+  }) async {
+    if (userId == null) return;
+    await _client.from('vital_logs').insert({
+      'user_id': userId!,
+      'type': type,
+      'value': value,
+      'systolic': systolic,
+      'diastolic': diastolic,
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<List<VitalLog>> getVitalLogs({int limit = 30}) async {
+    if (userId == null) return [];
+    final result = await _client
+        .from('vital_logs')
+        .select()
+        .eq('user_id', userId!)
+        .order('timestamp', ascending: false)
+        .limit(limit);
+    return result.map<VitalLog>((m) => VitalLog.fromJson(m)).toList();
+  }
+
+  Future<List<VitalLog>> getTodayVitals() async {
+    if (userId == null) return [];
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
+    final result = await _client
+        .from('vital_logs')
+        .select()
+        .eq('user_id', userId!)
+        .gte('timestamp', startOfDay)
+        .order('timestamp', ascending: false);
+    return result.map<VitalLog>((m) => VitalLog.fromJson(m)).toList();
   }
 
   // ──── SOS EVENTS ───────────────────────────────

@@ -5,7 +5,7 @@ import 'screens/nominee_setup_screen.dart';
 import 'screens/app_shell.dart';
 import 'screens/home_screen.dart';
 import 'screens/medications_screen.dart';
-import 'screens/hydration_screen.dart';
+import 'screens/nearby_facilities_screen.dart';
 import 'screens/wellbeing_screen.dart';
 import 'screens/profile_screen.dart';
 
@@ -48,9 +48,9 @@ final appRouter = GoRouter(
               const NoTransitionPage(child: MedicationsScreen()),
         ),
         GoRoute(
-          path: '/hydration',
+          path: '/facilities',
           pageBuilder: (context, state) =>
-              const NoTransitionPage(child: HydrationScreen()),
+              const NoTransitionPage(child: NearbyFacilitiesScreen()),
         ),
         GoRoute(
           path: '/wellbeing',

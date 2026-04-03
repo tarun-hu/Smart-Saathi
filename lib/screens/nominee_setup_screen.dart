@@ -13,34 +13,22 @@ class NomineeSetupScreen extends StatefulWidget {
 class _NomineeSetupScreenState extends State<NomineeSetupScreen>
     with SingleTickerProviderStateMixin {
   final _supabase = SupabaseService.instance;
-  int _currentStep = 0; // 0, 1, 2 for each nominee
   bool _isLoading = false;
 
-  final List<TextEditingController> _nameControllers =
-      List.generate(3, (_) => TextEditingController());
-  final List<TextEditingController> _phoneControllers =
-      List.generate(3, (_) => TextEditingController());
+  // Dynamic list of nominee forms (start with 1, max 3)
+  final List<TextEditingController> _nameControllers = [TextEditingController()];
+  final List<TextEditingController> _phoneControllers = [TextEditingController()];
 
   late AnimationController _animController;
-  late Animation<Offset> _slideAnimation;
-
-  final _stepLabels = [
-    'First Family Member',
-    'Second Family Member',
-    'Third Family Member',
-  ];
-
-  final _stepEmojis = ['👨‍👩‍👦', '👪', '👨‍👩‍👧‍👦'];
+  late Animation<double> _fadeAnimation;
 
   @override
   void initState() {
     super.initState();
     _animController = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 400));
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(1, 0),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _animController, curve: Curves.easeOut));
+        vsync: this, duration: const Duration(milliseconds: 500));
+    _fadeAnimation =
+        CurvedAnimation(parent: _animController, curve: Curves.easeOut);
     _animController.forward();
   }
 
@@ -56,6 +44,26 @@ class _NomineeSetupScreenState extends State<NomineeSetupScreen>
     super.dispose();
   }
 
+  int get _nomineeCount => _nameControllers.length;
+
+  void _addNomineeSlot() {
+    if (_nomineeCount >= 3) return;
+    setState(() {
+      _nameControllers.add(TextEditingController());
+      _phoneControllers.add(TextEditingController());
+    });
+  }
+
+  void _removeNomineeSlot(int index) {
+    if (_nomineeCount <= 1) return;
+    setState(() {
+      _nameControllers[index].dispose();
+      _phoneControllers[index].dispose();
+      _nameControllers.removeAt(index);
+      _phoneControllers.removeAt(index);
+    });
+  }
+
   void _showSnack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -67,68 +75,66 @@ class _NomineeSetupScreenState extends State<NomineeSetupScreen>
     );
   }
 
-  bool _validateCurrentStep() {
-    final name = _nameControllers[_currentStep].text.trim();
-    final phone = _phoneControllers[_currentStep].text.trim();
+  bool _validate() {
+    // At least first nominee must be filled
+    final name = _nameControllers[0].text.trim();
+    final phone = _phoneControllers[0].text.trim();
 
     if (name.isEmpty) {
-      _showSnack('Please enter the name');
+      _showSnack('Please enter the first nominee\'s name');
       return false;
     }
     if (phone.isEmpty) {
-      _showSnack('Please enter the WhatsApp number');
+      _showSnack('Please enter the first nominee\'s WhatsApp number');
       return false;
     }
 
-    // Validate Indian phone number
-    final cleanPhone = phone.replaceAll(RegExp(r'[^\d]'), '');
-    if (cleanPhone.length != 10 &&
-        !(cleanPhone.length == 12 && cleanPhone.startsWith('91'))) {
-      _showSnack('Please enter a valid 10-digit Indian mobile number');
-      return false;
-    }
+    // Validate all filled nominees
+    for (int i = 0; i < _nomineeCount; i++) {
+      final n = _nameControllers[i].text.trim();
+      final p = _phoneControllers[i].text.trim();
 
+      if (n.isEmpty && p.isEmpty && i > 0) continue; // Skip empty optional slots
+
+      if (n.isEmpty || p.isEmpty) {
+        _showSnack('Please fill both name and number for nominee ${i + 1}');
+        return false;
+      }
+
+      final cleanPhone = p.replaceAll(RegExp(r'[^\d]'), '');
+      if (cleanPhone.length != 10 &&
+          !(cleanPhone.length == 12 && cleanPhone.startsWith('91'))) {
+        _showSnack('Nominee ${i + 1}: Enter a valid 10-digit Indian mobile number');
+        return false;
+      }
+    }
     return true;
   }
 
-  void _nextStep() {
-    if (!_validateCurrentStep()) return;
-
-    if (_currentStep < 2) {
-      setState(() => _currentStep++);
-      _animController.reset();
-      _animController.forward();
-    } else {
-      _saveNominees();
-    }
-  }
-
-  void _prevStep() {
-    if (_currentStep > 0) {
-      setState(() => _currentStep--);
-      _animController.reset();
-      _animController.forward();
-    }
-  }
-
   Future<void> _saveNominees() async {
+    if (!_validate()) return;
+
     setState(() => _isLoading = true);
     try {
       final nominees = <Map<String, String>>[];
-      for (int i = 0; i < 3; i++) {
-        String phone = _phoneControllers[i].text.trim().replaceAll(RegExp(r'[^\d]'), '');
-        if (phone.length == 10) phone = '+91$phone';
-        if (!phone.startsWith('+')) phone = '+$phone';
+      for (int i = 0; i < _nomineeCount; i++) {
+        final name = _nameControllers[i].text.trim();
+        final phone = _phoneControllers[i].text.trim();
+        if (name.isEmpty || phone.isEmpty) continue;
+
+        String cleanPhone = phone.replaceAll(RegExp(r'[^\d]'), '');
+        if (cleanPhone.length == 10) cleanPhone = '+91$cleanPhone';
+        if (!cleanPhone.startsWith('+')) cleanPhone = '+$cleanPhone';
 
         nominees.add({
-          'name': _nameControllers[i].text.trim(),
-          'whatsapp': phone,
+          'name': name,
+          'whatsapp': cleanPhone,
         });
       }
 
       await _supabase.saveAllNominees(nominees);
       if (!mounted) return;
-      _showSnack('✅ Family members saved successfully!');
+      _showSnack('✅ Family member${nominees.length > 1 ? "s" : ""} saved!');
       context.go('/home');
     } catch (e) {
       _showSnack('Error: ${e.toString().replaceAll('Exception: ', '')}');
@@ -149,236 +155,171 @@ class _NomineeSetupScreenState extends State<NomineeSetupScreen>
           ),
         ),
         child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
-              children: [
-                const SizedBox(height: 20),
-                // Header
-                Text(
-                  'Add Family Members',
-                  style: GoogleFonts.poppins(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header
+                  Center(
+                    child: Text(
+                      'Add Family Member',
+                      style: GoogleFonts.poppins(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'These people will receive your emergency alerts',
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    color: Colors.white.withAlpha(200),
+                  const SizedBox(height: 8),
+                  Center(
+                    child: Text(
+                      'At least 1 family member is required for SOS alerts.\nYou can add up to 3.',
+                      style: GoogleFonts.poppins(
+                        fontSize: 14,
+                        color: Colors.white.withAlpha(200),
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24),
+                  const SizedBox(height: 28),
 
-                // Step indicators
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(3, (i) {
-                    final isActive = i == _currentStep;
-                    final isDone = i < _currentStep;
-                    return Row(
-                      children: [
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          width: isActive ? 40 : 32,
-                          height: isActive ? 40 : 32,
-                          decoration: BoxDecoration(
-                            color: isDone
-                                ? Colors.white
-                                : isActive
-                                    ? Colors.white.withAlpha(40)
-                                    : Colors.white.withAlpha(15),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: isActive || isDone
-                                  ? Colors.white
-                                  : Colors.white.withAlpha(60),
-                              width: 2,
+                  // Nominee forms
+                  ...List.generate(_nomineeCount, (i) => _nomineeForm(i)),
+
+                  // Add more button
+                  if (_nomineeCount < 3)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Center(
+                        child: OutlinedButton.icon(
+                          onPressed: _addNomineeSlot,
+                          icon: const Icon(Icons.add, color: Colors.white),
+                          label: Text(
+                            'Add Another (Optional)',
+                            style: GoogleFonts.poppins(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
-                          child: Center(
-                            child: isDone
-                                ? const Icon(Icons.check,
-                                    color: Color(0xFF1B5E20), size: 20)
-                                : Text(
-                                    '${i + 1}',
-                                    style: GoogleFonts.poppins(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: isActive ? 16 : 14,
-                                    ),
-                                  ),
-                          ),
-                        ),
-                        if (i < 2)
-                          Container(
-                            width: 40,
-                            height: 2,
-                            color: isDone
-                                ? Colors.white
-                                : Colors.white.withAlpha(40),
-                          ),
-                      ],
-                    );
-                  }),
-                ),
-                const SizedBox(height: 32),
-
-                // Form card
-                Expanded(
-                  child: SlideTransition(
-                    position: _slideAnimation,
-                    child: Card(
-                      color: Colors.white.withAlpha(20),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(24),
-                        side: BorderSide(color: Colors.white.withAlpha(30)),
-                      ),
-                      elevation: 0,
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Center(
-                                child: Text(
-                                  _stepEmojis[_currentStep],
-                                  style: const TextStyle(fontSize: 50),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Center(
-                                child: Text(
-                                  _stepLabels[_currentStep],
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 24),
-                              Text(
-                                'Name',
-                                style: GoogleFonts.poppins(
-                                  color: Colors.white.withAlpha(200),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              TextField(
-                                controller: _nameControllers[_currentStep],
-                                style: GoogleFonts.poppins(
-                                    color: Colors.white, fontSize: 18),
-                                decoration: _inputDecor(
-                                    'Enter name', Icons.person_outline),
-                              ),
-                              const SizedBox(height: 20),
-                              Text(
-                                'WhatsApp Number',
-                                style: GoogleFonts.poppins(
-                                  color: Colors.white.withAlpha(200),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              TextField(
-                                controller: _phoneControllers[_currentStep],
-                                keyboardType: TextInputType.phone,
-                                style: GoogleFonts.poppins(
-                                    color: Colors.white, fontSize: 18),
-                                decoration: _inputDecor(
-                                  '+91 XXXXX XXXXX',
-                                  Icons.phone,
-                                  prefix: '+91 ',
-                                ),
-                              ),
-                              const SizedBox(height: 28),
-
-                              // Navigation buttons
-                              Row(
-                                children: [
-                                  if (_currentStep > 0)
-                                    Expanded(
-                                      child: OutlinedButton.icon(
-                                        onPressed: _prevStep,
-                                        icon: const Icon(Icons.arrow_back,
-                                            color: Colors.white),
-                                        label: Text('Back',
-                                            style: GoogleFonts.poppins(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.w600)),
-                                        style: OutlinedButton.styleFrom(
-                                          side: const BorderSide(
-                                              color: Colors.white),
-                                          padding: const EdgeInsets.symmetric(
-                                              vertical: 16),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(16),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  if (_currentStep > 0)
-                                    const SizedBox(width: 12),
-                                  Expanded(
-                                    flex: 2,
-                                    child: _isLoading
-                                        ? const Center(
-                                            child: CircularProgressIndicator(
-                                                color: Colors.white))
-                                        : ElevatedButton.icon(
-                                            onPressed: _nextStep,
-                                            icon: Icon(
-                                              _currentStep < 2
-                                                  ? Icons.arrow_forward
-                                                  : Icons.check_circle,
-                                              color: Colors.white,
-                                            ),
-                                            label: Text(
-                                              _currentStep < 2
-                                                  ? 'Next'
-                                                  : 'Save All',
-                                              style: GoogleFonts.poppins(
-                                                fontSize: 17,
-                                                fontWeight: FontWeight.w700,
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor:
-                                                  const Color(0xFFFF6F00),
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      vertical: 16),
-                                              shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(16),
-                                              ),
-                                              elevation: 6,
-                                            ),
-                                          ),
-                                  ),
-                                ],
-                              ),
-                            ],
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(
+                                color: Colors.white.withAlpha(120)),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 24, vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
                           ),
                         ),
                       ),
                     ),
+
+                  const SizedBox(height: 28),
+
+                  // Save button
+                  SizedBox(
+                    width: double.infinity,
+                    child: _isLoading
+                        ? const Center(
+                            child:
+                                CircularProgressIndicator(color: Colors.white))
+                        : ElevatedButton.icon(
+                            onPressed: _saveNominees,
+                            icon: const Icon(Icons.check_circle,
+                                color: Colors.white),
+                            label: Text(
+                              'Continue',
+                              style: GoogleFonts.poppins(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFFF6F00),
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 18),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              elevation: 6,
+                            ),
+                          ),
                   ),
-                ),
-                const SizedBox(height: 16),
-              ],
+                  const SizedBox(height: 40),
+                ],
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _nomineeForm(int index) {
+    final labels = ['First', 'Second', 'Third'];
+    final emojis = ['👨‍👩‍👦', '👪', '👨‍👩‍👧‍👦'];
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white.withAlpha(20),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withAlpha(30)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(emojis[index], style: const TextStyle(fontSize: 28)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '${labels[index]} Family Member${index == 0 ? " *" : " (Optional)"}',
+                  style: GoogleFonts.poppins(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              if (index > 0)
+                GestureDetector(
+                  onTap: () => _removeNomineeSlot(index),
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withAlpha(40),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.close, color: Colors.white, size: 18),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _nameControllers[index],
+            style: GoogleFonts.poppins(color: Colors.white, fontSize: 17),
+            decoration: _inputDecor('Enter name', Icons.person_outline),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _phoneControllers[index],
+            keyboardType: TextInputType.phone,
+            style: GoogleFonts.poppins(color: Colors.white, fontSize: 17),
+            decoration: _inputDecor(
+              '+91 XXXXX XXXXX',
+              Icons.phone,
+              prefix: '+91 ',
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -389,7 +330,7 @@ class _NomineeSetupScreenState extends State<NomineeSetupScreen>
       hintStyle: GoogleFonts.poppins(color: Colors.white.withAlpha(100)),
       prefixIcon: Icon(icon, color: Colors.white.withAlpha(180)),
       prefixText: prefix,
-      prefixStyle: GoogleFonts.poppins(color: Colors.white, fontSize: 18),
+      prefixStyle: GoogleFonts.poppins(color: Colors.white, fontSize: 17),
       filled: true,
       fillColor: Colors.white.withAlpha(15),
       border: OutlineInputBorder(

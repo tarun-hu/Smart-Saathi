@@ -179,3 +179,7 @@ x64/
 x86/
 *.[Cc]ache
 !*.[Cc]ache/
+
+# Build outputs
+*.apk
+*.aab

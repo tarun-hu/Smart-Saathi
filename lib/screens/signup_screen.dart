@@ -71,7 +71,7 @@ class _SignupScreenState extends State<SignupScreen>
       final nominees = await _supabase.getNominees();
       if (!mounted) return;
 
-      if (nominees.length < 3) {
+      if (nominees.isEmpty) {
         context.go('/nominees');
       } else {
         context.go('/home');
