@@ -1,13 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { NavLink } from "react-router-dom";
 import BrandLogo from "../assets/logos/shield.svg?react";
-import { AuthContext } from "../context/AuthContext";
-import { useContext } from "react";
 
 const NavBar = () => {
-  const useAuth = useContext(AuthContext);
-  const { user, login, logout } = useAuth;
-
   return (
     <div
       id='navbar'
@@ -47,24 +42,9 @@ const NavBar = () => {
         <Button size='md' asChild variant='link'>
           <NavLink to={"/contact"}>Contact</NavLink>
         </Button>
-        {!user ? (
-          <>
-            <Button
-              size='md'
-              asChild
-              variant='outline'
-              className='ml-8 border-gray-300'>
-              <NavLink to='/signup'>Sign Up</NavLink>
-            </Button>
-            <Button size='md' asChild className='ml-6'>
-              <NavLink to='/login'>Log In</NavLink>
-            </Button>
-          </>
-        ) : (
-          <Button size='md' asChild className='ml-6'>
-            <NavLink>Dashboard</NavLink>
-          </Button>
-        )}
+        <Button size='md' asChild className='ml-6'>
+          <a href='/#app-download'>Download</a>
+        </Button>
       </div>
     </div>
   );

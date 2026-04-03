@@ -61,8 +61,8 @@ const SupportForm = ({ className }) => {
       <Card className={`min-h-[70vh] min-w-2xl ${className}`}>
         <>
           <CardHeader>
-            <CardTitle>Report a bug</CardTitle>
-            <CardDescription>
+            <CardTitle className='text-xl font-extrabold'>Report a bug</CardTitle>
+            <CardDescription className='text-base'>
               Please help us improve our site by reporting your case
             </CardDescription>
           </CardHeader>

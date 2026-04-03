@@ -4,6 +4,16 @@ import Notification from "../assets/illustrations/notification.svg?react";
 import UserInterface from "../assets/illustrations/user_interface.svg?react";
 import Privacy from "../assets/illustrations/privacy.svg?react";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Carousel,
@@ -27,7 +37,7 @@ import {
   Star,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import NavBar from "../components/NavBar";
 import { useCarouselControls } from "../hooks/useCarouselControls";
 
@@ -41,6 +51,21 @@ const Home = () => {
   const [isTestimonialAutoplayPaused, setIsTestimonialAutoplayPaused] =
     useState(false);
   const testimonialHoldPauseTimeoutRef = useRef(null);
+  const location = useLocation();
+
+  useEffect(() => {
+    if (location.hash !== "#app-download") return;
+
+    const scrollToDownload = () => {
+      const downloadSection = document.getElementById("app-download");
+
+      if (downloadSection) {
+        downloadSection.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    };
+
+    requestAnimationFrame(scrollToDownload);
+  }, [location.hash, location.pathname]);
 
   const testimonialPages = [
     [
@@ -265,28 +290,57 @@ const Home = () => {
             your loved ones, receive alerts, and take action when it matters
             most.
           </p>
-          <Button
-            asChild
-            onClick={() => {
-              console.log("caretaker signup");
-            }}
-            className='
-              py-6
-              text-lg
-              select-none cursor-pointer
-              group
-            '>
-            <a>
-              <span className='flex-1 text-center'>
-                Get started as a caregiver
-              </span>
-              <ArrowRightIcon
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
                 className='
-                  size-5 shrink-0 group-hover:translate-x-1.5 transition
-                '
-              />
-            </a>
-          </Button>
+                  py-6
+                  text-lg
+                  select-none cursor-pointer
+                  group
+                '>
+                <span className='flex-1 text-center'>
+                  Get started as a caregiver
+                </span>
+                <ArrowRightIcon
+                  className='
+                    size-5 shrink-0 group-hover:translate-x-1.5 transition
+                  '
+                />
+              </Button>
+            </AlertDialogTrigger>
+
+            <AlertDialogContent className='max-w-md rounded-2xl border border-slate-300 bg-linear-to-b from-white to-slate-100 p-7 shadow-[0_36px_90px_-42px_rgba(2,6,23,0.65)]'>
+              <AlertDialogHeader className='items-center text-center'>
+                <p className='inline-flex items-center rounded-full border border-brand-accent/45 bg-brand-accent/15 px-3 py-1 text-xs font-semibold tracking-[0.12em] text-brand-accent uppercase'>
+                  Companion App
+                </p>
+                <AlertDialogTitle className='text-2xl font-black tracking-tight text-slate-950'>
+                  Scan to Download
+                </AlertDialogTitle>
+                <AlertDialogDescription className='max-w-xs text-sm text-slate-800'>
+                  Open your phone camera and scan this QR to download Smart Sarthi.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+
+              <div className='mx-auto mt-1 overflow-hidden rounded-2xl border-2 border-slate-300 bg-white p-4 shadow-[0_16px_34px_-18px_rgba(15,23,42,0.45)]'>
+                <img
+                  src='/temp/smart_sarthi_qr.png'
+                  alt='Smart Sarthi app download QR code'
+                  draggable={false}
+                  className='h-58 w-58 select-none object-contain'
+                />
+              </div>
+
+              <p className='text-center text-xs text-slate-700'>
+                You can also find direct download links in the App Download section.
+              </p>
+
+              <AlertDialogFooter>
+                <AlertDialogCancel className='w-full sm:w-full'>Close</AlertDialogCancel>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           {/* <Grandma className='size-80 absolute right-0 -bottom-5 hover:-rotate-2 hover:scale-[1.05] transition' /> */}
           {/* <CheckPattern className="size-50 absolute -bottom-55 left-[30%] "/> */}
@@ -369,7 +423,7 @@ const Home = () => {
           className='
             flex flex-col
             min-h-screen
-            p-30
+            px-30 py-20
             bg-amber-50
             gap-3 relative items-start
           '>
