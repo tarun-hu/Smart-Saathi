@@ -118,7 +118,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground overflow-x-hidden;
   }
 }
 
@@ -150,5 +150,5 @@ h2 {
 
 @theme inline {
   /* --color-brand-accent: oklch(0.5 0.2 270); */
-  --color-brand-accent:oklch(41.568% 0.13555 273.785);
+  --color-brand-accent: oklch(41.568% 0.13555 273.785);
 }

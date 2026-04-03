@@ -28,6 +28,7 @@ function App() {
         className='
         flex flex-col
         min-h-screen
+        overflow-x-hidden
         bg-linear-to-br from-brand-accent to-blue-800
       '>
         <Routes>

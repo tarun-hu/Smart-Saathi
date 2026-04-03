@@ -37,7 +37,7 @@ import {
   Star,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link } from "react-router-dom";
 import NavBar from "../components/NavBar";
 import { useCarouselControls } from "../hooks/useCarouselControls";
 
@@ -51,21 +51,6 @@ const Home = () => {
   const [isTestimonialAutoplayPaused, setIsTestimonialAutoplayPaused] =
     useState(false);
   const testimonialHoldPauseTimeoutRef = useRef(null);
-  const location = useLocation();
-
-  useEffect(() => {
-    if (location.hash !== "#app-download") return;
-
-    const scrollToDownload = () => {
-      const downloadSection = document.getElementById("app-download");
-
-      if (downloadSection) {
-        downloadSection.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    };
-
-    requestAnimationFrame(scrollToDownload);
-  }, [location.hash, location.pathname]);
 
   const testimonialPages = [
     [
