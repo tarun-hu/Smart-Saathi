@@ -183,3 +183,6 @@ x86/
 # Build outputs
 *.apk
 *.aab
+
+# Claude agent config
+.claude/

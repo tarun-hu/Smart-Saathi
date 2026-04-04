@@ -16,7 +16,7 @@ class HydrationLog {
       id: json['id'] as String,
       userId: json['user_id'] as String,
       amount: json['amount'] as int? ?? 250,
-      timestamp: DateTime.parse(json['timestamp'] as String),
+      timestamp: DateTime.parse(json['timestamp'] as String).toLocal(),
     );
   }
 

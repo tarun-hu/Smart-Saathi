@@ -145,7 +145,7 @@ class VoiceService extends ChangeNotifier {
       onResult: (result) {
         _lastRecognized = result.recognizedWords;
         notifyListeners();
-        if (result.finalResult) {
+        if (result.finalResult && result.recognizedWords.trim().isNotEmpty) {
           onResult(result.recognizedWords);
           // Restore wake word mode
           if (wasWakeMode) {
@@ -157,10 +157,10 @@ class VoiceService extends ChangeNotifier {
       },
       localeId: _currentLocale,
       listenFor: const Duration(seconds: 30),
-      pauseFor: const Duration(seconds: 2),
+      pauseFor: const Duration(seconds: 3),
       listenOptions: stt.SpeechListenOptions(
-        listenMode: stt.ListenMode.search,
-        cancelOnError: true,
+        listenMode: stt.ListenMode.dictation,
+        cancelOnError: false,
         partialResults: true,
       ),
     );

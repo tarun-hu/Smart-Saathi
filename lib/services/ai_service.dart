@@ -36,18 +36,19 @@ You help with:
 
 IMPORTANT RULES:
 - Always be encouraging, positive, and caring.
-- If they want to open a page (like "show my reports" or "open profile"), use the navigate_to tool.
-- If asked about emergencies, TRIGGER THE SOS TOOL IMMEDIATELY or tell them to press the SOS button.
-- If they want to log water, use the log_water tool. 1 glass = 250ml.
+- If they want to open a page (like "show my reports", "open medications", "health reports"), use the navigate_to tool.
+- If asked about emergencies or help, TRIGGER THE SOS TOOL IMMEDIATELY.
+- If they want to log water or say they drank water, use the log_water tool. 1 glass = 250ml.
 - If they want to add a medicine, use the add_medication tool. Ask for time if unclear.
 - If they say they took their pill, use the mark_medication_taken tool.
 - If they share how they feel (happy, sad, sick), use the log_wellbeing tool.
-- If they ask for their status, use the get_status tool.
+- If they ask for their status or summary, use the get_status tool.
 - If user speaks Hindi, reply in Hindi. If English, reply in English.
-- Do NOT use markdown, bullet points, or formatting — speak naturally.''';
+- Do NOT use markdown, bullet points, or formatting — speak naturally.
+- ALWAYS prefer using a tool when the user's intent matches one. Do not just give a text response when a tool should be called.''';
 
   Future<void> initialize() async {
-    _apiKey = dotenv.env['GROQ_API_KEY'];
+    _apiKey = dotenv.env['COHERE_API_KEY'];
   }
 
   bool get isConfigured => _apiKey != null && _apiKey!.isNotEmpty;
@@ -92,7 +93,8 @@ IMPORTANT RULES:
         fullSystemPrompt += '\n\nCurrent user context: $_userContext';
       }
 
-      final messages = [
+      // Build messages array for Cohere v2 API
+      final messages = <Map<String, dynamic>>[
         {'role': 'system', 'content': fullSystemPrompt},
         ..._conversationHistory,
       ];
@@ -102,19 +104,23 @@ IMPORTANT RULES:
           "type": "function",
           "function": {
             "name": "trigger_sos",
-            "description": "Trigger an emergency SOS alert to family members. Use only for emergencies/help.",
+            "description": "Trigger an emergency SOS alert to family members. Use for emergencies, help, danger, falling, or any urgent situation.",
+            "parameters": {
+              "type": "object",
+              "properties": {},
+            }
           }
         },
         {
           "type": "function",
           "function": {
             "name": "add_medication",
-            "description": "Add a new medication reminder.",
+            "description": "Add a new medication reminder for the user.",
             "parameters": {
               "type": "object",
               "properties": {
-                "name": {"type": "string", "description": "The name of the medicine"},
-                "time": {"type": "string", "description": "The time to take the medicine, e.g., '8:00 AM'"},
+                "name": {"type": "string", "description": "The name of the medicine e.g. Paracetamol, Metformin"},
+                "time": {"type": "string", "description": "The time to take the medicine in format like '8:00 AM' or '9:30 PM'"},
                 "frequency": {"type": "string", "description": "How often to take it, e.g., 'daily', 'twice daily'"}
               },
               "required": ["name", "time", "frequency"]
@@ -125,20 +131,24 @@ IMPORTANT RULES:
           "type": "function",
           "function": {
             "name": "mark_medication_taken",
-            "description": "Mark the next pending medication as taken.",
+            "description": "Mark the next pending medication as taken. Use when user says they took their medicine or pill.",
+            "parameters": {
+              "type": "object",
+              "properties": {},
+            }
           }
         },
         {
           "type": "function",
           "function": {
             "name": "log_water",
-            "description": "Log that the user drank water.",
+            "description": "Log water intake for the user. Use when user says they drank water, had a glass of water, etc.",
             "parameters": {
               "type": "object",
               "properties": {
-                "amount": {"type": "integer", "description": "Amount in ml. 1 glass = 250."}
+                "glasses": {"type": "integer", "description": "Number of glasses of water. 1 glass = 250ml. Default is 1."}
               },
-              "required": ["amount"]
+              "required": ["glasses"]
             }
           }
         },
@@ -146,14 +156,14 @@ IMPORTANT RULES:
           "type": "function",
           "function": {
             "name": "log_wellbeing",
-            "description": "Log the user's current mood or wellbeing.",
+            "description": "Log the user's current mood or wellbeing status.",
             "parameters": {
               "type": "object",
               "properties": {
                 "mood": {
                   "type": "string",
                   "enum": ["happy", "okay", "sad", "unwell"],
-                  "description": "The mood."
+                  "description": "The mood of the user."
                 }
               },
               "required": ["mood"]
@@ -165,20 +175,24 @@ IMPORTANT RULES:
           "function": {
             "name": "get_status",
             "description": "Get the current daily summary of pending medications, hydration, and mood to read out loud.",
+            "parameters": {
+              "type": "object",
+              "properties": {},
+            }
           }
         },
         {
           "type": "function",
           "function": {
             "name": "navigate_to",
-            "description": "Navigate to a specific screen in the app.",
+            "description": "Navigate to a specific screen in the app. Use when user wants to see medications, reports, profile, health data, or nearby hospitals.",
             "parameters": {
               "type": "object",
               "properties": {
                 "route": {
                   "type": "string",
-                  "enum": ["/reports", "/medications", "/vitals", "/profile", "/water"],
-                  "description": "The route to navigate to."
+                  "enum": ["/home", "/meds", "/wellbeing", "/facilities", "/profile"],
+                  "description": "The route to navigate to. /meds=medications, /wellbeing=reports & vitals, /facilities=nearby hospitals, /profile=user profile"
                 }
               },
               "required": ["route"]
@@ -187,57 +201,62 @@ IMPORTANT RULES:
         }
       ];
 
+      // Cohere v2 API endpoint
       final response = await http.post(
-        Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
+        Uri.parse('https://api.cohere.com/v2/chat'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $_apiKey',
         },
         body: jsonEncode({
-          'model': 'llama-3.3-70b-versatile',
+          'model': 'command-r-08-2024',
           'messages': messages,
           'tools': tools,
-          'tool_choice': 'auto',
-          'max_tokens': 150,
-          'temperature': 0.7,
+          'max_tokens': 200,
+          'temperature': 0.6,
         }),
       );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final message = data['choices'][0]['message'];
-        
-        // Check for tool calls
-        if (message['tool_calls'] != null && (message['tool_calls'] as List).isNotEmpty) {
-          final toolCall = message['tool_calls'][0];
-          final function = toolCall['function'];
-          final name = function['name'];
-          dynamic args;
+        final finishReason = data['finish_reason'] as String? ?? '';
+        final message = data['message'] as Map<String, dynamic>? ?? {};
+
+        // Check for tool calls (finish_reason == 'TOOL_CALL' in Cohere v2)
+        if (finishReason.toUpperCase() == 'TOOL_CALL' &&
+            message['tool_calls'] != null &&
+            (message['tool_calls'] as List).isNotEmpty) {
+          final toolCall = (message['tool_calls'] as List)[0];
+          final function = toolCall['function'] as Map<String, dynamic>;
+          final name = function['name'] as String;
+          Map<String, dynamic> args;
           if (function['arguments'] is String) {
             try {
-              args = jsonDecode(function['arguments']);
+              args = Map<String, dynamic>.from(jsonDecode(function['arguments']));
             } catch (_) {
               args = {};
             }
           } else {
-            args = function['arguments'] ?? {};
+            args = Map<String, dynamic>.from(function['arguments'] ?? {});
           }
-          
-          // We do not add the raw message with tool_calls to the history 
-          // because Groq requires a corresponding 'tool'/'function' response right after it.
-          // Since we execute the action locally and speak the result directly, 
-          // we should just log the user intent as a system status if needed, 
-          // but omitted here to prevent a 400 Bad Request on the next chat turn.
-          
+
           return AIResponse(toolName: name, toolArgs: args);
         }
 
-        // Just regular text response
-        final reply = message['content'] as String? ?? '';
+        // Regular text response — Cohere v2 returns content as a list
+        String reply = '';
+        final content = message['content'];
+        if (content is List && content.isNotEmpty) {
+          // content: [{ "type": "text", "text": "..." }]
+          reply = (content[0]['text'] as String?) ?? '';
+        } else if (content is String) {
+          reply = content;
+        }
+
         _conversationHistory.add({'role': 'assistant', 'content': reply});
         return AIResponse(text: reply.trim());
       } else {
-        debugPrint('Groq API error: ${response.statusCode} ${response.body}');
+        debugPrint('AI API error: ${response.statusCode} ${response.body}');
         return AIResponse(text: 'Sorry, I could not process that. Please try again.');
       }
     } catch (e) {
@@ -248,46 +267,12 @@ IMPORTANT RULES:
 
   Future<String> generateReportSummary(String base64Image) async {
     if (!isConfigured) return "AI not configured.";
-    
     try {
-      final response = await http.post(
-        Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_apiKey',
-        },
-        body: jsonEncode({
-          'model': 'llama-3.2-90b-vision-preview',
-          'messages': [
-            {
-              'role': 'user',
-              'content': [
-                {
-                  'type': 'text',
-                  'text': 'Analyze this health report carefully. Summarize the key findings and predict the outcome or what it means in 2 short, simple sentences suitable for a senior to understand.'
-                },
-                {
-                  'type': 'image_url',
-                  'image_url': {
-                    'url': 'data:image/jpeg;base64,$base64Image',
-                  }
-                }
-              ]
-            }
-          ],
-          'max_tokens': 150,
-          'temperature': 0.4,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['choices'][0]['message']['content']?.trim() ?? "Unable to analyze report.";
-      }
-      return "Failed to analyze report.";
+      // Vision / report summary not supported in free tier – return placeholder
+      return 'Report summary not available in free mode.';
     } catch (e) {
-      debugPrint('Vision API error: $e');
-      return "Error analyzing report.";
+      debugPrint('Report summary error: $e');
+      return 'Failed to generate report summary.';
     }
   }
 }

@@ -1,8 +1,8 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:timezone/timezone.dart' as tz;
-import 'package:intl/intl.dart';
 import '../main.dart';
 
 class NotificationService {
@@ -18,15 +18,14 @@ class NotificationService {
   Future<void> initialize() async {
     if (_isInitialized) return;
 
-    const androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosSettings = DarwinInitializationSettings(
+    final androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    final iosSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
       requestSoundPermission: true,
     );
 
-    const initSettings = InitializationSettings(
+    final initSettings = InitializationSettings(
       android: androidSettings,
       iOS: iosSettings,
     );
@@ -52,77 +51,44 @@ class NotificationService {
 
   // ──── MEDICATION REMINDERS ─────────────────────
 
+  // Medication reminder using spoken TTS loop instead of loud notification
+  final FlutterTts _medTts = FlutterTts();
+  final Map<int, Timer> _medTimers = {};
+
   Future<void> scheduleMedicationReminder({
     required int id,
     required String medName,
     required String dosage,
     required String time,
   }) async {
-    const androidDetails = AndroidNotificationDetails(
-      'medication_channel',
-      'Medication Reminders',
-      channelDescription: 'Reminders to take your medication',
-      importance: Importance.max,
-      priority: Priority.high,
-      playSound: true,
-      enableVibration: true,
-      category: AndroidNotificationCategory.reminder,
-      fullScreenIntent: true,
-      actions: [
-        AndroidNotificationAction('taken', '✅ Taken', showsUserInterface: true),
-        AndroidNotificationAction('snooze', '⏰ Snooze 15 min', showsUserInterface: true),
-      ],
-    );
+    // Cancel any existing reminder for this id
+    await stopMedicationReminder(id);
 
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-    );
+    // Prepare the reminder text
+    final reminderText = 'Time to take $dosage of $medName. Say taken when you have taken it.';
 
-    const details = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
+    // Speak immediately
+    await _medTts.setLanguage('en-IN');
+    await _medTts.speak(reminderText);
 
-    DateTime parsedTime;
-    try {
-      parsedTime = DateFormat('h:mm a').parse(time);
-    } catch (e) {
-      try {
-        parsedTime = DateFormat('HH:mm').parse(time);
-      } catch (e) {
-        parsedTime = DateTime.now().add(const Duration(minutes: 5));
-      }
-    }
+    // Repeat every 30 seconds until stopped
+    final timer = Timer.periodic(const Duration(seconds: 30), (_) async {
+      await _medTts.speak(reminderText);
+    });
+    _medTimers[id] = timer;
+  }
 
-    final now = DateTime.now();
-    var scheduleDate = DateTime(now.year, now.month, now.day, parsedTime.hour, parsedTime.minute);
-    
-    if (scheduleDate.isBefore(now)) {
-      scheduleDate = scheduleDate.add(const Duration(days: 1));
-    }
-
-    final tzDate = tz.TZDateTime.from(scheduleDate, tz.local);
-
-    await _notifications.zonedSchedule(
-      id,
-      '💊 Time for $medName',
-      'Take $dosage - Scheduled at $time',
-      tzDate,
-      details,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      payload: 'medication:$id:$medName',
-      matchDateTimeComponents: DateTimeComponents.time,
-    );
+  Future<void> stopMedicationReminder(int id) async {
+    // Cancel timer and stop TTS for this reminder
+    final timer = _medTimers.remove(id);
+    timer?.cancel();
+    await _medTts.stop();
   }
 
   // ──── HYDRATION REMINDERS ──────────────────────
 
   Future<void> showHydrationReminder() async {
-    const androidDetails = AndroidNotificationDetails(
+    final androidDetails = AndroidNotificationDetails(
       'hydration_channel',
       'Hydration Reminders',
       channelDescription: 'Reminders to drink water',
@@ -133,13 +99,13 @@ class NotificationService {
       category: AndroidNotificationCategory.reminder,
     );
 
-    const iosDetails = DarwinNotificationDetails(
+    final iosDetails = DarwinNotificationDetails(
       presentAlert: true,
       presentBadge: true,
       presentSound: true,
     );
 
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
     );
@@ -156,7 +122,7 @@ class NotificationService {
   // ──── SOS NOTIFICATIONS ────────────────────────
 
   Future<void> showSosActiveNotification() async {
-    const androidDetails = AndroidNotificationDetails(
+    final androidDetails = AndroidNotificationDetails(
       'sos_channel',
       'SOS Alerts',
       channelDescription: 'Emergency SOS alerts',
@@ -168,7 +134,7 @@ class NotificationService {
       category: AndroidNotificationCategory.alarm,
     );
 
-    const details = NotificationDetails(android: androidDetails);
+    final details = NotificationDetails(android: androidDetails);
 
     await _notifications.show(
       8888,

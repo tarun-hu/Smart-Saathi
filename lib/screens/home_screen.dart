@@ -38,9 +38,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _isVoiceActive = false;
   String _voiceStatus = '';
   String _lastCommand = '';
+  String _partialText = '';
   String _aiResponse = '';
   bool _isConversationMode = false;
-  Timer? _conversationTimer;
+  Timer? _voiceCommandTimer; Timer? _conversationTimer;
 
   late AnimationController _pulseController;
   late AnimationController _sosGlowController;
@@ -139,9 +140,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       setState(() {
         _isVoiceActive = false;
         _voiceStatus = '';
+        _partialText = '';
         _isConversationMode = false;
       });
-      _conversationTimer?.cancel();
+      _voiceCommandTimer?.cancel();
+    _conversationTimer?.cancel();
       // Resume wake word mode
       _startWakeWordMode();
       return;
@@ -153,23 +156,42 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (mounted) {
       setState(() {
         _isVoiceActive = true;
-      _voiceStatus = _voice.isHindi ? 'सुन रहा हूँ...' : 'Listening...';
-      _aiResponse = '';
+        _voiceStatus = _voice.isHindi ? 'सुन रहा हूँ...' : 'Listening...';
+        _aiResponse = '';
+        _partialText = '';
+        _lastCommand = '';
       });
     }
 
     await _voice.speak(_voice.isHindi
-        ? 'मैं सुन रहा हूँ, बताइए क्या मदद चाहिए?'
+        ? 'बताइए क्या मदद चाहिए?'
         : 'How can I help you?');
 
     _startActiveListening();
   }
 
-  void _startActiveListening() {
+
+void _startActiveListening() {
     _voice.startListening(
-      (text) => _processCommand(text),
+      (text) {
+        // Cancel any existing timer and start a new 2‑second debounce before processing
+        _voiceCommandTimer?.cancel();
+        _voiceCommandTimer = Timer(const Duration(seconds: 2), () {
+          if (mounted) {
+            setState(() {
+              _lastCommand = text;
+              _partialText = '';
+            });
+          }
+          _processCommand(text);
+        });
+      },
       onPartial: (text) {
-        if (mounted) setState(() => _lastCommand = text);
+        if (mounted) {
+          setState(() {
+            _partialText = text;
+          });
+        }
       },
     );
   }
@@ -177,6 +199,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void _returnVoiceToOriginalState() {
     if (_voice.isListening) {
       _voice.stopListening();
+      _voiceCommandTimer?.cancel();
+      _voiceCommandTimer = null;
     }
 
     if (mounted) {
@@ -192,6 +216,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   /// After AI responds, stay in conversation mode for a few seconds
   void _enterConversationMode() {
+    _voiceCommandTimer?.cancel();
     _conversationTimer?.cancel();
     _isConversationMode = true;
 
@@ -222,115 +247,164 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _processCommand(String text) async {
+    if (text.trim().isEmpty) return;
+    _voiceCommandTimer?.cancel();
     _conversationTimer?.cancel();
     _voice.setProcessing(true);
     var shouldEnterConversationMode = true;
 
     if (mounted) {
       setState(() {
-      _isVoiceActive = false;
-      _lastCommand = text;
-      _voiceStatus = _voice.isHindi ? 'सोच रहा हूँ...' : 'Processing...';
+        _isVoiceActive = false;
+        _lastCommand = text;
+        _partialText = '';
+        _voiceStatus = _voice.isHindi ? 'सोच रहा हूँ...' : 'Thinking...';
       });
     }
 
     try {
       final aiResponse = await _ai.chat(text);
 
-    if (aiResponse.isToolCall) {
-      final name = aiResponse.toolName;
-      final args = aiResponse.toolArgs ?? {};
+      if (aiResponse.isToolCall) {
+        final name = aiResponse.toolName;
+        final args = aiResponse.toolArgs ?? {};
+        debugPrint('Tool call: $name with args: $args');
 
-      switch (name) {
-        case 'trigger_sos':
-          await _triggerSos();
-          break;
-        case 'add_medication':
-          final medName = args['name'] as String? ?? '';
-          final time = args['time'] as String? ?? '8:00 AM';
-          final freq = args['frequency'] as String? ?? 'daily';
-          if (medName.isNotEmpty) {
-            try {
-              await _supabase.addMedication(medName, '1 tablet', time, freq);
-              await _voice.speak(_voice.isHindi
-                  ? 'दवाई "$medName" जोड़ दी गई, $time पर याद दिलाऊंगा'
-                  : 'Medicine "$medName" added. I\'ll remind you at $time');
-              await _notif.scheduleMedicationReminder(
-                id: DateTime.now().millisecondsSinceEpoch % 100000,
-                medName: medName,
-                dosage: '1 tablet',
-                time: time,
-              );
-            } catch (e) {
-              await _voice.speak(_voice.isHindi
-                  ? 'दवाई जोड़ने में समस्या हुई'
-                  : 'There was a problem adding the medicine');
-            }
-          }
-          break;
-        case 'mark_medication_taken':
-          try {
-            final meds = await _supabase.getMedications();
-            final pending = meds.where((m) => m.status == 'pending').toList();
-            if (pending.isNotEmpty) {
-              await _supabase.updateMedicationStatus(pending.first.id, 'taken');
-              await _voice.speak(_voice.isHindi
-                  ? 'बहुत अच्छे! "${pending.first.name}" ली गई।'
-                  : 'Great! "${pending.first.name}" marked as taken.');
+        switch (name) {
+          case 'trigger_sos':
+            await _triggerSos();
+            break;
+          case 'add_medication':
+            final medName = (args['name'] ?? '').toString();
+            final time = (args['time'] ?? '8:00 AM').toString();
+            final freq = (args['frequency'] ?? 'daily').toString();
+            if (medName.isNotEmpty) {
+              try {
+                await _supabase.addMedication(medName, '1 tablet', time, freq);
+                await _voice.speak(_voice.isHindi
+                    ? 'दवाई "$medName" जोड़ दी गई, $time पर याद दिलाऊंगा'
+                    : 'Medicine "$medName" added. I will remind you at $time');
+                await _notif.scheduleMedicationReminder(
+                  id: DateTime.now().millisecondsSinceEpoch % 100000,
+                  medName: medName,
+                  dosage: '1 tablet',
+                  time: time,
+                );
+              } catch (e) {
+                debugPrint('Add medication error: $e');
+                await _voice.speak(_voice.isHindi
+                    ? 'दवाई जोड़ने में समस्या हुई'
+                    : 'There was a problem adding the medicine');
+              }
             } else {
               await _voice.speak(_voice.isHindi
-                  ? 'कोई दवाई बाकी नहीं है!'
-                  : 'No pending medicines to mark as taken!');
+                  ? 'दवाई का नाम बताइए'
+                  : 'Please tell me the medicine name');
             }
-          } catch (e) {
+            break;
+          case 'mark_medication_taken':
+            try {
+              final meds = await _supabase.getMedications();
+              final pending = meds.where((m) => m.status == 'pending').toList();
+              if (pending.isNotEmpty) {
+                await _supabase.updateMedicationStatus(pending.first.id, 'taken');
+                await _voice.speak(_voice.isHindi
+                    ? 'बहुत अच्छे! "${pending.first.name}" ली गई।'
+                    : 'Great! "${pending.first.name}" marked as taken.');
+              } else {
+                await _voice.speak(_voice.isHindi
+                    ? 'कोई दवाई बाकी नहीं है!'
+                    : 'No pending medicines right now!');
+              }
+            } catch (e) {
+              debugPrint('Mark medication error: $e');
+              await _voice.speak(_voice.isHindi
+                  ? 'दवाई अपडेट करने में समस्या हुई'
+                  : 'There was a problem updating medication');
+            }
+            break;
+          case 'log_water':
+            // Handle both 'glasses' and 'amount' keys, and handle string/int types
+            int amount = 250;
+            if (args.containsKey('glasses')) {
+              final glasses = int.tryParse(args['glasses'].toString()) ?? 1;
+              amount = glasses * 250;
+            } else if (args.containsKey('amount')) {
+              amount = int.tryParse(args['amount'].toString()) ?? 250;
+            }
+            try {
+              await _supabase.addHydration(amount);
+              if (mounted) setState(() => _hydrationMl += amount);
+              await _voice.speak(_voice.isHindi
+                  ? '$amount ml पानी लॉग किया। आज कुल $_hydrationMl ml'
+                  : '$amount ml water logged. Today\'s total: $_hydrationMl ml');
+            } catch (e) {
+              debugPrint('Log water error: $e');
+              await _voice.speak('Sorry, could not log water.');
+            }
+            break;
+          case 'log_wellbeing':
+            final mood = (args['mood'] ?? 'okay').toString();
+            try {
+              await _supabase.addWellbeingLog(mood);
+              if (mounted) setState(() => _todayMood = mood);
+              await _voice.speak(_voice.isHindi
+                  ? 'आपका मूड "$mood" लॉग किया गया'
+                  : 'Mood logged as "$mood"');
+            } catch (e) {
+              debugPrint('Log wellbeing error: $e');
+            }
+            break;
+          case 'get_status':
             await _voice.speak(_voice.isHindi
-                ? 'बहुत अच्छे! दवाई ली गई।'
-                : 'Great! Medicine marked as taken.');
-          }
-          break;
-        case 'log_water':
-          final amount = args['amount'] as int? ?? 250;
-          await _supabase.addHydration(amount);
-          if (mounted) setState(() => _hydrationMl += amount);
-          await _voice.speak(_voice.isHindi
-              ? '$amount ml पानी लॉग किया। आज कुल $_hydrationMl ml'
-              : '$amount ml water logged. Today total: $_hydrationMl ml');
-          break;
-        case 'log_wellbeing':
-          final mood = args['mood'] as String? ?? 'okay';
-          await _supabase.addWellbeingLog(mood);
-          if (mounted) setState(() => _todayMood = mood);
-          await _voice.speak(_voice.isHindi
-              ? 'आपका मूड "$mood" लॉग किया गया'
-              : 'Mood logged as "$mood"');
-          break;
-        case 'get_status':
-          await _voice.speak(_voice.isHindi
-              ? 'आज: $_pendingMeds दवाइयाँ बाकी, $_hydrationMl ml पानी पिया, मूड: ${_todayMood ?? "अभी तक नहीं"}'
-              : 'Today: $_pendingMeds meds pending, ${_hydrationMl}ml water, mood: ${_todayMood ?? "not logged yet"}');
-          break;
-        case 'navigate_to':
-          final route = (args['route'] ?? args['target']) as String? ?? '/home';
-          shouldEnterConversationMode = route == '/home';
-          if (mounted) {
-            context.go(route);
-          }
-          await _voice.speak(_voice.isHindi
-                ? 'पीछे ले जा रहा हूँ।'
-                : 'Taking you there now.');
-          break;
-        default:
-          await _voice.speak(_voice.isHindi
-              ? 'मुझे समझ नहीं आया।'
-              : 'I am not sure how to do that.');
+                ? 'आज: $_pendingMeds दवाइयाँ बाकी, $_hydrationMl ml पानी पिया, मूड: ${_todayMood ?? "अभी तक नहीं"}'
+                : 'Today: $_pendingMeds meds pending, ${_hydrationMl}ml water, mood: ${_todayMood ?? "not logged yet"}');
+            break;
+          case 'navigate_to':
+            final route = (args['route'] ?? '/home').toString();
+            shouldEnterConversationMode = route == '/home';
+            await _voice.speak(_voice.isHindi
+                ? 'ले जा रहा हूँ।'
+                : 'Taking you there.');
+            if (mounted) {
+              context.go(route);
+            }
+            break;
+          default:
+            await _voice.speak(_voice.isHindi
+                ? 'मुझे समझ नहीं आया।'
+                : 'I am not sure how to do that.');
+        }
+      } else {
+      // Simple keyword navigation fallback
+      final lower = text.toLowerCase();
+      if (lower.contains('medication') || lower.contains('medicines') || lower.contains('meds')) {
+        await _voice.speak(_voice.isHindi ? 'दवाइयाँ दिखाता हूँ' : 'Opening medications');
+        if (mounted) context.go('/meds');
+        return;
       }
-    } else if (aiResponse.text != null && aiResponse.text!.isNotEmpty) {
-      if (mounted) setState(() => _aiResponse = aiResponse.text!);
-      await _voice.speak(aiResponse.text!);
-    } else {
-      await _voice.speak(_voice.isHindi
-          ? 'समझ नहीं आया। कृपया फिर से कहें।'
-          : 'I didn\'t understand that. Please try again.');
+      if (lower.contains('report') || lower.contains('reports') || lower.contains('health')) {
+        await _voice.speak(_voice.isHindi ? 'रिपोर्ट दिखाता हूँ' : 'Opening health reports');
+        if (mounted) context.go('/wellbeing');
+        return;
+      }
+      if (lower.contains('profile')) {
+        await _voice.speak(_voice.isHindi ? 'प्रोफ़ाइल दिखाता हूँ' : 'Opening profile');
+        if (mounted) context.go('/profile');
+        return;
+      }
+      if (lower.contains('home')) {
+        await _voice.speak(_voice.isHindi ? 'मुख पेज पर जा रहा हूँ' : 'Going to home');
+        if (mounted) context.go('/home');
+        return;
+      }
+      // Existing AI text response handling
+      if (aiResponse.text != null && aiResponse.text!.isNotEmpty) {
+        if (mounted) setState(() => _aiResponse = aiResponse.text!);
+        await _voice.speak(aiResponse.text!);
+      } else {
+        await _voice.speak(_voice.isHindi ? 'समझ नहीं आया। कृपया फिर से कहें।' : 'I am not sure how to do that.');
+      }
     }
 
       await _loadData();
@@ -343,12 +417,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       }
     } finally {
       _voice.setProcessing(false);
-      if (!mounted) return;
-      setState(() => _voiceStatus = '');
-
-      if (shouldEnterConversationMode) {
-        // After processing, enter conversation mode briefly
-        _enterConversationMode();
+      if (mounted) {
+        setState(() {
+          _voiceStatus = '';
+          _partialText = '';
+        });
+        if (shouldEnterConversationMode) {
+          _enterConversationMode();
+        }
       }
     }
   }
@@ -453,6 +529,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _voiceCommandTimer?.cancel();
     _conversationTimer?.cancel();
     _voice.stopWakeWordListening();
     _pulseController.dispose();
@@ -788,6 +865,28 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     ),
                     textAlign: TextAlign.center,
                   ),
+                  // Show live transcription
+                  if (_partialText.isNotEmpty || (_isVoiceActive && _lastCommand.isNotEmpty)) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withAlpha(20),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '"${_partialText.isNotEmpty ? _partialText : _lastCommand}"',
+                        style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white.withAlpha(230),
+                          fontStyle: FontStyle.italic,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

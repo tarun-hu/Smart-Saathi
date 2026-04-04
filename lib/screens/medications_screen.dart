@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/supabase_service.dart';
 import '../services/voice_service.dart';
+import '../services/notification_service.dart';
 import '../services/ai_service.dart';
 import '../models/medication.dart';
 
@@ -112,7 +113,7 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
   Future<void> _addMedDialog() async {
     final nameC = TextEditingController();
     final dosageC = TextEditingController(text: '1 tablet');
-    final timeC = TextEditingController(text: '08:00 AM');
+    TimeOfDay selectedTime = const TimeOfDay(hour: 8, minute: 0);
     String frequency = 'daily';
 
     await showModalBottomSheet(
@@ -150,7 +151,47 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
               const SizedBox(height: 12),
               _dialogField(dosageC, 'Dosage', Icons.medical_services),
               const SizedBox(height: 12),
-              _dialogField(timeC, 'Time (e.g. 8:00 AM)', Icons.access_time),
+              // Time Picker Button
+              GestureDetector(
+                onTap: () async {
+                  final picked = await showTimePicker(
+                    context: ctx,
+                    initialTime: selectedTime,
+                    builder: (context, child) {
+                      return Theme(
+                        data: Theme.of(context).copyWith(
+                          colorScheme: const ColorScheme.light(
+                            primary: Color(0xFFFF6F00),
+                          ),
+                        ),
+                        child: child!,
+                      );
+                    },
+                  );
+                  if (picked != null) {
+                    setDlg(() => selectedTime = picked);
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.access_time, color: Colors.grey),
+                      const SizedBox(width: 12),
+                      Text(
+                        selectedTime.format(ctx),
+                        style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                      const Spacer(),
+                      Text('Tap to change', style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey)),
+                    ],
+                  ),
+                ),
+              ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 initialValue: frequency,
@@ -186,11 +227,14 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
                       return;
                     }
 
+                    // Format the time as "h:mm AM/PM"
+                    final timeStr = selectedTime.format(ctx);
+
                     try {
                       final medication = await _supabase.addMedication(
                         name,
                         dosageC.text.trim(),
-                        timeC.text.trim(),
+                        timeStr,
                         frequency,
                       );
                       _upsertMedication(medication);
@@ -410,6 +454,8 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
             GestureDetector(
               onTap: () async {
                 await _supabase.updateMedicationStatus(med.id, 'taken');
+                // Stop spoken reminder for this medication
+                await NotificationService().stopMedicationReminder(med.id.hashCode);
                 unawaited(_speakIfReady('${med.name} marked as taken'));
               },
               child: Container(
