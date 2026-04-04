@@ -17,7 +17,10 @@ class VitalLog {
     required this.timestamp,
   });
 
-  factory VitalLog.fromJson(Map<String, dynamic> json) {
+  factory VitalLog.fromJson(
+    Map<String, dynamic> json, {
+    bool treatAsLegacyWallClock = false,
+  }) {
     return VitalLog(
       id: json['id'] as String,
       userId: json['user_id'] as String,
@@ -25,8 +28,36 @@ class VitalLog {
       value: (json['value'] as num?)?.toDouble(),
       systolic: json['systolic'] as int?,
       diastolic: json['diastolic'] as int?,
-      timestamp: DateTime.parse(json['timestamp'] as String),
+      timestamp: _parseTimestamp(
+        json['timestamp'] as String,
+        treatAsLegacyWallClock: treatAsLegacyWallClock,
+      ),
     );
+  }
+
+  static DateTime _parseTimestamp(
+    String rawTimestamp, {
+    bool treatAsLegacyWallClock = false,
+  }) {
+    final parsed = DateTime.parse(rawTimestamp);
+    final parsedUtc = parsed.toUtc();
+
+    if (treatAsLegacyWallClock) {
+      // Older vitals were written with local wall-clock time but without a
+      // timezone offset. Rebuild that wall-clock time in the device timezone.
+      return DateTime(
+        parsedUtc.year,
+        parsedUtc.month,
+        parsedUtc.day,
+        parsedUtc.hour,
+        parsedUtc.minute,
+        parsedUtc.second,
+        parsedUtc.millisecond,
+        parsedUtc.microsecond,
+      );
+    }
+
+    return parsed.isUtc ? parsed.toLocal() : parsed;
   }
 
   Map<String, dynamic> toJson() {

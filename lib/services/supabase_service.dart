@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/medication.dart';
 import '../models/nominee.dart';
@@ -12,6 +14,10 @@ import '../models/vital_log.dart';
 class SupabaseService {
   final SupabaseClient _client;
   SupabaseService(this._client);
+
+  static const _vitalsTimezoneFixInstalledAtKey =
+      'vitals_timezone_fix_installed_at_v1';
+  static const _fixedVitalRowIdsKey = 'vitals_timezone_fixed_row_ids_v1';
 
   static SupabaseService get instance =>
       SupabaseService(Supabase.instance.client);
@@ -358,14 +364,19 @@ class SupabaseService {
     int? diastolic,
   }) async {
     if (userId == null) return;
-    await _client.from('vital_logs').insert({
+    await _getVitalsTimezoneFixInstalledAt();
+    final inserted = await _client.from('vital_logs').insert({
       'user_id': userId!,
       'type': type,
       'value': value,
       'systolic': systolic,
       'diastolic': diastolic,
-      'timestamp': DateTime.now().toIso8601String(),
-    });
+      'timestamp': DateTime.now().toUtc().toIso8601String(),
+    }).select('id').single();
+    final insertedId = inserted['id'] as String?;
+    if (insertedId != null && insertedId.isNotEmpty) {
+      await _rememberFixedVitalRowId(insertedId);
+    }
   }
 
   Future<List<VitalLog>> getVitalLogs({int limit = 30}) async {
@@ -376,34 +387,125 @@ class SupabaseService {
         .eq('user_id', userId!)
         .order('timestamp', ascending: false)
         .limit(limit);
-    return result.map<VitalLog>((m) => VitalLog.fromJson(m)).toList();
+    final logs = await _mapVitalLogs(result);
+    logs.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return logs;
   }
 
   Future<List<VitalLog>> getTodayVitals() async {
-    if (userId == null) return [];
-    final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
-    final result = await _client
-        .from('vital_logs')
-        .select()
-        .eq('user_id', userId!)
-        .gte('timestamp', startOfDay)
-        .order('timestamp', ascending: false);
-    return result.map<VitalLog>((m) => VitalLog.fromJson(m)).toList();
+    final logs = await getVitalLogsForDay(DateTime.now());
+    logs.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return logs;
   }
 
   Future<List<VitalLog>> getVitalLogsForDay(DateTime date) async {
     if (userId == null) return [];
-    final startOfDay = DateTime(date.year, date.month, date.day);
-    final endOfDay = startOfDay.add(const Duration(days: 1));
+    final startOfDayLocal = DateTime(date.year, date.month, date.day);
+    final endOfDayLocal = startOfDayLocal.add(const Duration(days: 1));
+    final startOfDayUtc = startOfDayLocal.toUtc();
+    final endOfDayUtc = endOfDayLocal.toUtc();
+
+    // Legacy vitals were stored as local wall-clock timestamps interpreted as
+    // UTC, so fetch the overlap of both the fixed and legacy date windows.
+    final legacyStartUtc = DateTime.utc(date.year, date.month, date.day);
+    final legacyEndUtc = legacyStartUtc.add(const Duration(days: 1));
+    final queryStartUtc =
+        startOfDayUtc.isBefore(legacyStartUtc) ? startOfDayUtc : legacyStartUtc;
+    final queryEndUtc =
+        endOfDayUtc.isAfter(legacyEndUtc) ? endOfDayUtc : legacyEndUtc;
+
     final result = await _client
         .from('vital_logs')
         .select()
         .eq('user_id', userId!)
-        .gte('timestamp', startOfDay.toUtc().toIso8601String())
-        .lt('timestamp', endOfDay.toUtc().toIso8601String())
+        .gte('timestamp', queryStartUtc.toIso8601String())
+        .lt('timestamp', queryEndUtc.toIso8601String())
         .order('timestamp', ascending: true);
-    return result.map<VitalLog>((m) => VitalLog.fromJson(m)).toList();
+
+    final logs = await _mapVitalLogs(result);
+    final filteredLogs = logs.where((log) {
+      final timestamp = log.timestamp;
+      return !timestamp.isBefore(startOfDayLocal) &&
+          timestamp.isBefore(endOfDayLocal);
+    }).toList();
+    filteredLogs.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return filteredLogs;
+  }
+
+  Future<DateTime> _getVitalsTimezoneFixInstalledAt() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(_vitalsTimezoneFixInstalledAtKey);
+    if (stored != null) {
+      return DateTime.parse(stored).toUtc();
+    }
+
+    final installedAt = DateTime.now().toUtc();
+    await prefs.setString(
+      _vitalsTimezoneFixInstalledAtKey,
+      installedAt.toIso8601String(),
+    );
+    return installedAt;
+  }
+
+  Future<List<VitalLog>> _mapVitalLogs(List<dynamic> rows) async {
+    final prefs = await SharedPreferences.getInstance();
+    final legacyInterpretBeforeUtc = await _getVitalsTimezoneFixInstalledAt();
+    final fixedRowIds = prefs.getStringList(_fixedVitalRowIdsKey)?.toSet() ?? {};
+
+    return rows
+        .map<VitalLog>(
+          (row) {
+            final map = Map<String, dynamic>.from(row as Map);
+            final rowId = map['id'] as String? ?? '';
+            final rawTimestamp = map['timestamp'] as String;
+            final parsed = DateTime.parse(rawTimestamp);
+            final parsedUtc = parsed.toUtc();
+
+            // Legacy vitals were saved as local wall-clock timestamps into a
+            // timestamptz column. Rows logged shortly before midnight can end
+            // up after the fix-install cutoff in raw UTC, so we keep a grace
+            // window up to the local timezone offset and exempt rows written
+            // by the fixed client on this device.
+            final localWallClock = DateTime(
+              parsedUtc.year,
+              parsedUtc.month,
+              parsedUtc.day,
+              parsedUtc.hour,
+              parsedUtc.minute,
+              parsedUtc.second,
+              parsedUtc.millisecond,
+              parsedUtc.microsecond,
+            );
+            final localOffset = localWallClock.timeZoneOffset;
+            final ambiguousLegacyWindowEnd = legacyInterpretBeforeUtc.add(
+              Duration(minutes: math.max(localOffset.inMinutes, 0)),
+            );
+            final shouldTreatAsLegacyWallClock =
+                parsedUtc.isBefore(legacyInterpretBeforeUtc) ||
+                (!fixedRowIds.contains(rowId) &&
+                    parsedUtc.isBefore(ambiguousLegacyWindowEnd) &&
+                    localWallClock.toUtc().isBefore(legacyInterpretBeforeUtc));
+
+            return VitalLog.fromJson(
+              map,
+              treatAsLegacyWallClock: shouldTreatAsLegacyWallClock,
+            );
+          },
+        )
+        .toList();
+  }
+
+  Future<void> _rememberFixedVitalRowId(String rowId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final existing = prefs.getStringList(_fixedVitalRowIdsKey) ?? <String>[];
+    if (existing.contains(rowId)) return;
+
+    final updated = <String>[...existing, rowId];
+    const maxTrackedIds = 200;
+    final trimmed = updated.length > maxTrackedIds
+        ? updated.sublist(updated.length - maxTrackedIds)
+        : updated;
+    await prefs.setStringList(_fixedVitalRowIdsKey, trimmed);
   }
 
   // ──── SOS EVENTS ───────────────────────────────
