@@ -392,6 +392,20 @@ class SupabaseService {
     return result.map<VitalLog>((m) => VitalLog.fromJson(m)).toList();
   }
 
+  Future<List<VitalLog>> getVitalLogsForDay(DateTime date) async {
+    if (userId == null) return [];
+    final startOfDay = DateTime(date.year, date.month, date.day);
+    final endOfDay = startOfDay.add(const Duration(days: 1));
+    final result = await _client
+        .from('vital_logs')
+        .select()
+        .eq('user_id', userId!)
+        .gte('timestamp', startOfDay.toUtc().toIso8601String())
+        .lt('timestamp', endOfDay.toUtc().toIso8601String())
+        .order('timestamp', ascending: true);
+    return result.map<VitalLog>((m) => VitalLog.fromJson(m)).toList();
+  }
+
   // ──── SOS EVENTS ───────────────────────────────
 
   Future<void> logSosEvent(double lat, double lng) async {
