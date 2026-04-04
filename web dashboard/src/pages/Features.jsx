@@ -17,52 +17,40 @@ const seniorFeatures = [
     {
         title: "One-tap SOS",
         description:
-            "A single button press triggers an instant alert to all caregivers with live GPS location and timestamp. Voice-activated distress detection recognises phrases like \"Help, I have fallen\" and responds automatically in under 2 seconds.",
+            "A single tap sends an urgent alert to trusted family and friends with the senior's current location and a clear message about what help is needed, so support can be mobilized right away.",
         icon: Siren,
     },
     {
-        title: "AI Voice Assistant",
+        title: "Voice-first support",
         description:
-            "Powered by Google Speech-to-Text and NLP intent classification. Seniors speak naturally - \"Call my daughter\", \"When's my next medicine?\" - and the AI processes the intent with no typing required. Supports EMERGENCY_SOS, LOG_MEDICATION, and GENERAL_QUERY intents.",
+            "Seniors can speak naturally as if talking to a familiar helper — for example, \"Call my daughter\" or \"When is my next medicine?\" — and the app listens, understands, and responds without any typing.",
         icon: Mic,
     },
     {
-        title: "Medication Reminders",
+        title: "Medication reminders",
         description:
-            "TTS-powered voice reminders notify users at the exact scheduled time without requiring menu navigation. Missed doses are logged and caregivers are instantly alerted. Particularly valuable for managing diabetes, hypertension, or cardiovascular conditions.",
+            "Helpful voice reminders gently prompt each dose at the right times, while family members receive an update if a medicine is missed so they can follow up with care.",
         icon: Pill,
-    },
-    {
-        title: "Cognitive Exercises",
-        description:
-            "Daily brain exercises - memory recall, pattern recognition, verbal fluency - with scoring and trend tracking. Scores are surfaced in the caregiver dashboard as brain health metrics over time.",
-        icon: Brain,
     },
 ];
 
-const caregiverFeatures = [
+const familyFeatures = [
     {
-        title: "Real-time Dashboard",
+        title: "Clear family dashboard",
         description:
-            "A React.js dashboard providing real-time insights: medication adherence, GPS location, vitals, mood trends, hydration, and brain exercise scores. Built with Supabase real-time subscriptions - no page refresh needed.",
+            "A friendly, easy-to-scan dashboard brings reminders, recent activity, and any important alerts together so loved ones can feel connected and in control without hunting through menus.",
         icon: ChartNoAxesCombined,
     },
     {
-        title: "Live Location Tracking",
+        title: "Live location view",
         description:
-            "Caregivers view the senior's location on a live map. Geofence alerts trigger notifications when the senior leaves a pre-defined safe zone. Location is shared automatically during SOS events.",
+            "Keep an eye on where your loved one is in real time, with notifications if they leave a familiar area, helping you stay reassured and act quickly if needed.",
         icon: MapPinned,
     },
     {
-        title: "Secure Pairing",
+        title: "Routine alerts",
         description:
-            "An encrypted 8-character pairing code generated from the dashboard. Expires after 5 minutes for security. The senior enters the code in the app to establish an encrypted, verified connection.",
-        icon: ShieldCheck,
-    },
-    {
-        title: "Anomaly Detection",
-        description:
-            "AI flags deviations from the senior's established routine - unusually sedentary periods, missed check-ins, irregular vitals - as anomalies surfaced prominently in the dashboard for caregiver review.",
+            "Smart Saathi watches for small routine changes — like skipped check-ins or late medication — and sends a gentle notification so families can check in early and stay ahead of worry.",
         icon: Radar,
     },
 ];
@@ -148,17 +136,13 @@ const Features = () => {
                     <div className='pointer-events-none absolute -top-18 -right-14 h-56 w-56 rounded-full bg-cyan-300/30 blur-2xl' />
                     <div className='pointer-events-none absolute -bottom-20 -left-16 h-64 w-64 rounded-full bg-indigo-300/35 blur-2xl' />
 
-                    <p className='inline-flex items-center gap-2 rounded-full border border-brand-accent/25 bg-brand-accent/10 px-4 py-1 text-sm font-semibold text-brand-accent'>
-                        <Sparkles size={16} />
-                        SmartSaathi Features
-                    </p>
                     <h1 className='mt-4 max-w-4xl text-4xl font-black leading-tight text-slate-900 md:text-5xl lg:text-6xl'>
-                        Everything SmartSaathi can do
+                        Everything Smart Saathi can do
                     </h1>
                     <p className='mt-5 max-w-3xl text-lg leading-relaxed text-slate-700'>
                         Eight core capabilities designed around the real needs of elderly
-                        users and their caregivers, distilled from research and the
-                        SmartSaathi project objectives.
+                        users and their families, distilled from research and the
+                        Smart Saathi project objectives.
                     </p>
                 </section>
 
@@ -177,7 +161,7 @@ const Features = () => {
 
                         <div className='flex justify-center'>
                             <PhoneMockup
-                                screenImage='/temp/home2_filled.png'
+                                screenImage='/temp/home.png'
                                 title='Senior App'
                             />
                         </div>
@@ -186,22 +170,22 @@ const Features = () => {
 
                 <section className='bg-neutral-100 p-30'>
                     <div className='grid gap-8 lg:grid-cols-[0.85fr_1.15fr] lg:items-center'>
-                        <div className='flex justify-center'>
-                            <PhoneMockup
-                                screenImage='/temp/nearby.png'
-                                title='Caretaker Dashboard'
-                            />
-                        </div>
-
                         <div>
                             <h2 className='mb-6 text-2xl font-bold tracking-[0.08em] text-slate-900 md:text-3xl'>
-                                CAREGIVER-FACING FEATURES
+                                SMART SAATHI FEATURES
                             </h2>
                             <div className='grid gap-4'>
-                                {caregiverFeatures.map((feature) => (
+                                {familyFeatures.map((feature) => (
                                     <FeatureItem key={feature.title} feature={feature} />
                                 ))}
                             </div>
+                        </div>
+
+                        <div className='flex justify-center'>
+                            <PhoneMockup
+                                screenImage='/temp/nearby.png'
+                                title='Family Dashboard'
+                            />
                         </div>
                     </div>
                 </section>

@@ -1,5 +1,6 @@
 import Apple from "../assets/logos/apple.svg?react";
 import Android from "../assets/logos/android.svg?react";
+import BrandLogo from "../assets/logos/shield.svg?react";
 import Notification from "../assets/illustrations/notification.svg?react";
 import UserInterface from "../assets/illustrations/user_interface.svg?react";
 import Privacy from "../assets/illustrations/privacy.svg?react";
@@ -23,7 +24,6 @@ import {
 } from "@/components/ui/carousel";
 import {
   Activity,
-  ArrowRightIcon,
   BellRing,
   Quote,
   Users2,
@@ -57,7 +57,7 @@ const Home = () => {
       {
         image: "/temp/testimonials/ananya-rao.jpg",
         quote:
-          "Smart Sarthi made it easy to keep track of reminders and daily check-ins without feeling overwhelming.",
+          "Smart Saathi made it easy to keep track of reminders and daily check-ins without feeling overwhelming.",
         rating: 4.5,
         name: "Ananya Rao",
       },
@@ -94,7 +94,7 @@ const Home = () => {
       {
         image: "/temp/testimonials/myra-das.jpg",
         quote:
-          "Adding a caregiver and setting things up was straightforward, which saved us a lot of time.",
+          "Adding family support and setting things up was straightforward, which saved us a lot of time.",
         rating: 5,
         name: "Myra Das",
       },
@@ -212,7 +212,7 @@ const Home = () => {
       fitMode: "cover",
     },
     {
-      title: "Add your family member as caregiver",
+      title: "Add your family member",
       description:
         "Enter member details, configure essentials, and complete profile setup.",
       image: "/temp/add_member_filled.png",
@@ -256,7 +256,7 @@ const Home = () => {
               care{" "}
               {/* <Underline className="w-70 absolute -right-5 -top-8" /> */}
             </span>
-            they deserve.
+            they deserve
             <span
               className='
                 inline-block
@@ -281,17 +281,16 @@ const Home = () => {
                 className='
                   py-6
                   text-lg
-                  select-none cursor-pointer
-                  group
+                  select-none
+                  cursor-pointer
+                  transition-transform
+                  duration-300
+                  ease-out
+                  hover:scale-110
                 '>
                 <span className='flex-1 text-center'>
-                  Get started as a caregiver
+                  Get Cared with Smart Saathi
                 </span>
-                <ArrowRightIcon
-                  className='
-                    size-5 shrink-0 group-hover:translate-x-1.5 transition
-                  '
-                />
               </Button>
             </AlertDialogTrigger>
 
@@ -304,14 +303,14 @@ const Home = () => {
                   Scan to Download
                 </AlertDialogTitle>
                 <AlertDialogDescription className='max-w-xs text-sm text-slate-800'>
-                  Open your phone camera and scan this QR to download Smart Sarthi.
+                  Open your phone camera and scan this QR to download Smart Saathi.
                 </AlertDialogDescription>
               </AlertDialogHeader>
 
               <div className='mx-auto mt-1 overflow-hidden rounded-2xl border-2 border-slate-300 bg-white p-4 shadow-[0_16px_34px_-18px_rgba(15,23,42,0.45)]'>
                 <img
                   src='/temp/smart_sarthi_qr.png'
-                  alt='Smart Sarthi app download QR code'
+                  alt='Smart Saathi app download QR code'
                   draggable={false}
                   className='h-58 w-58 select-none object-contain'
                 />
@@ -326,6 +325,10 @@ const Home = () => {
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+
+          <div className='absolute right-10 top-44'>
+            <BrandLogo className='size-72 text-white transition-transform duration-300 ease-out hover:scale-110 cursor-pointer' />
+          </div>
 
           {/* <Grandma className='size-80 absolute right-0 -bottom-5 hover:-rotate-2 hover:scale-[1.05] transition' /> */}
           {/* <CheckPattern className="size-50 absolute -bottom-55 left-[30%] "/> */}
@@ -427,17 +430,6 @@ const Home = () => {
               <a href='https://github.com/tarun-hu/Smart-Saathi/releases/download/v1.0.0/smart_sarthi_app.apk'>
                 <Android className='size-5 shrink-0' />
                 <span className='flex-1 text-center'>Download for Android</span>
-              </a>
-            </Button>
-            <Button
-              asChild
-              onClick={() => {
-                console.log("download for ios");
-              }}
-              className='py-6 text-lg select-none cursor-pointer'>
-              <a href='https://github.com/tarun-hu/Smart-Saathi/releases/download/v1.0.0/smart_sarthi_app.apk'>
-                <Apple className='size-5 shrink-0' />
-                <span className='flex-1 text-center'>Download for iOS</span>
               </a>
             </Button>
           </div>
@@ -700,7 +692,7 @@ const Home = () => {
                   mt-3
                   text-lg font-semibold text-neutral-100
                 '>
-                Caregivers
+                Family members
               </p>
               <p className='mt-1 text-sm text-neutral-300'>
                 actively serving the community

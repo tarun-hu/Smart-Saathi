@@ -5,8 +5,6 @@ const footerLinks = [
     { label: "About us", to: "/about" },
     { label: "Features", to: "/features" },
     { label: "Contact", to: "/contact" },
-    { label: "Meet our team", to: "/" },
-    { label: "Privacy policy", to: "/" },
 ];
 
 const Footer = () => {

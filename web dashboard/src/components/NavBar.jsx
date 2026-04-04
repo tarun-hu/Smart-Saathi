@@ -25,7 +25,7 @@ const NavBar = () => {
           साथी
         </p> */}
         <p className=' text-4xl font-extrabold text-neutral-200 '>
-          SmartSarthi
+          Smart Saathi
         </p>
       </NavLink>
 

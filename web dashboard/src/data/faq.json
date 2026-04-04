@@ -2,21 +2,46 @@
   {
     "id": 1,
     "ques": "Is my data being sold?",
-    "ans": "No. we only collect essential data and no data is sold to third parties."
+    "ans": "No. We only collect essential information needed to make the app work, and no data is sold to third parties."
   },
   {
     "id": 2,
-    "ques": "How does the pairing process work as a caregiver?",
-    "ans": "generate a pairing code from the dashboard, open the app on their phone and add the code. note that the code expires after 5 minutes."
+    "ques": "How do I get started with Smart Saathi?",
+    "ans": "Create an account, add the people you want to support, and choose the reminders and alerts that matter most. The app guides you through each step in a clear, simple way."
   },
   {
     "id": 3,
-    "ques": "Can i add manage multiple people at once?",
-    "ans": "yes."
+    "ques": "What happens if a reminder is missed?",
+    "ans": "Smart Saathi sends a notification so someone can follow up, helping everyone stay on track and reducing the chance of missed medications or appointments."
   },
   {
     "id": 4,
+    "ques": "Can I see recent activity and alerts in one place?",
+    "ans": "Yes. The app brings reminders, recent activity, and important notifications together in a single overview so it is easier to stay informed."
+  },
+  {
+    "id": 5,
+    "ques": "Is the app easy for older adults to use?",
+    "ans": "Yes. Smart Saathi is designed with large buttons, clear voice prompts, and a simple experience so it is comfortable for older adults to navigate."
+  },
+  {
+    "id": 6,
     "ques": "Is my data secure?",
-    "ans": "yes all your data is secured."
+    "ans": "Yes. Your information is protected with encryption and secure storage to keep personal details safe."
+  },
+  {
+    "id": 7,
+    "ques": "Can I set reminders for both medication and appointments?",
+    "ans": "Yes. Smart Saathi lets you schedule reminders for medication, doctor visits, and other important daily activities so nothing is missed."
+  },
+  {
+    "id": 8,
+    "ques": "Can I adjust the alerts I receive?",
+    "ans": "Yes. You can customize which notifications are sent and how you want to be notified, so the app fits your daily routine."
+  },
+  {
+    "id": 9,
+    "ques": "Will the app work on the device I already have?",
+    "ans": "Smart Saathi is designed to work on common smartphones and tablets, so you can use the device you already own."
   }
 ]

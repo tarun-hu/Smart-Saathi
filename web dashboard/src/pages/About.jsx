@@ -14,13 +14,13 @@ const principles = [
   {
     title: "Safety by Default",
     description:
-      "Alerts, reminders, and health context are prioritized so caregivers can respond quickly when something important changes.",
+      "Alerts, reminders, and health context are prioritized so family members can respond quickly when something important changes.",
     icon: ShieldCheck,
   },
   {
     title: "Human-Centered AI",
     description:
-      "AI assists decision-making while keeping caregivers and families in control with transparent, actionable insights.",
+      "AI assists decision-making while keeping family members in control with transparent, actionable insights.",
     icon: Brain,
   },
 ];
@@ -40,7 +40,7 @@ const About = () => {
                 Making elderly care safer, smarter, and more accessible.
               </h1>
               <p className='mt-6 max-w-3xl text-lg leading-relaxed text-neutral-700'>
-                SmartSaathi is built with a simple goal to make elderly care
+                Smart Saathi is built with a simple goal to make elderly care
                 safer, smarter, and more accessible. As more seniors live
                 independently, everyday challenges like memory decline, health
                 management, and isolation become serious concerns.
@@ -89,7 +89,7 @@ const About = () => {
                 We combine AI, speech recognition, and healthcare IoT to create
                 a system that understands users naturally and supports them in
                 real time. Instead of relying on complex apps and small
-                interfaces, SmartSaathi focuses on what matters most:
+                interfaces, Smart Saathi focuses on what matters most:
                 simplicity, accessibility, and care.
               </p>
             </div>
@@ -101,15 +101,14 @@ const About = () => {
                 What We Do
               </h2>
               <p className='mt-5 text-lg leading-relaxed text-neutral-700'>
-                SmartSaathi provides a seamless way for elderly individuals to
+                Smart Saathi provides a seamless way for elderly individuals to
                 interact with technology using voice-first communication. By
                 continuously capturing inputs and health data, it builds a
                 real-time understanding of a user's condition and needs.
               </p>
               <p className='mt-5 text-lg leading-relaxed text-neutral-700'>
-                Caregivers and family members stay connected, informed, and
-                ready to act when needed, ensuring safety without compromising
-                independence.
+                Family members stay connected, informed, and ready to act when
+                needed, ensuring safety without compromising independence.
               </p>
             </div>
 
