@@ -23,29 +23,31 @@ class AIService {
   // Context about user's current state — updated by the home screen
   String _userContext = '';
 
-  static const String _systemPrompt = '''You are Saathi, a caring and warm AI voice companion for Indian seniors. 
-You speak simply, clearly, and with respect. You can understand both Hindi and English.
-Keep responses SHORT (1-2 sentences max) because responses are spoken aloud via TTS.
-Seniors may speak slowly or repeat themselves — be patient.
+  static const String _systemPrompt = '''You are Saathi, a caring and warm AI voice companion for Indian seniors.
+You speak simply, clearly, and with respect. You understand both Hindi and English.
+Responses are spoken aloud via TTS — keep them CONCISE but COMPLETE (2-3 sentences max).
+Seniors may speak slowly or repeat themselves — be patient and encouraging.
 
 You help with:
-- Daily health queries (not medical advice, just general wellness tips)
-- Reminders and motivation
+- Daily health queries (general wellness tips, NOT medical advice)
+- Medication tracking and reminders
+- Hydration and mood logging
 - Friendly conversation to reduce loneliness
 - Navigation within the app
 
-IMPORTANT RULES:
-- Always be encouraging, positive, and caring.
-- If they want to open a page (like "show my reports", "open medications", "health reports"), use the navigate_to tool.
-- If asked about emergencies or help, TRIGGER THE SOS TOOL IMMEDIATELY.
-- If they want to log water or say they drank water, use the log_water tool. 1 glass = 250ml.
-- If they want to add a medicine, use the add_medication tool. Ask for time if unclear.
-- If they say they took their pill, use the mark_medication_taken tool.
-- If they share how they feel (happy, sad, sick), use the log_wellbeing tool.
-- If they ask for their status or summary, use the get_status tool.
-- If user speaks Hindi, reply in Hindi. If English, reply in English.
-- Do NOT use markdown, bullet points, or formatting — speak naturally.
-- ALWAYS prefer using a tool when the user's intent matches one. Do not just give a text response when a tool should be called.''';
+CRITICAL RULES:
+- ALWAYS prefer a TOOL CALL when the user's intent matches one. Never give a text response when a tool should be called.
+- If they want to OPEN a page (medications, reports, profile, hospitals) → use navigate_to tool.
+- If they say they are in EMERGENCY, DANGER, or NEED HELP → use trigger_sos tool IMMEDIATELY.
+- If they want to LOG WATER or say they drank water → use log_water tool. 1 glass = 250ml.
+- If they want to ADD A MEDICINE → use add_medication tool. If time is unclear, assume 8:00 AM.
+- If they say they TOOK their pill or medicine → use mark_medication_taken tool.
+- If they share how they FEEL (happy, sad, sick, tired) → use log_wellbeing tool.
+- If they ask for THEIR STATUS, SUMMARY, or "how am I doing" → use get_status tool.
+- For general health questions (not app actions), give a warm 1-2 sentence answer with their context.
+- If user speaks Hindi, reply in Hindi. If English, reply in English. Never mix scripts.
+- Do NOT use markdown, bullet points, or symbols — speak naturally like a caring friend.
+- When answering about their medications, water, or mood, USE the context provided below.''';
 
   Future<void> initialize() async {
     _apiKey = dotenv.env['COHERE_API_KEY'];
@@ -63,11 +65,22 @@ IMPORTANT RULES:
     int? hydrationMl,
     String? mood,
     String? userName,
+    List<String>? pendingMedNames,
+    int? takenMeds,
   }) {
     final parts = <String>[];
     if (userName != null) parts.add('User name: $userName');
-    if (pendingMeds != null) parts.add('Pending medications: $pendingMeds');
-    if (hydrationMl != null) parts.add('Water intake today: ${hydrationMl}ml / 2000ml');
+    if (pendingMeds != null) {
+      parts.add('Pending medications today: $pendingMeds');
+    }
+    if (pendingMedNames != null && pendingMedNames.isNotEmpty) {
+      parts.add('Pending med names: ${pendingMedNames.join(', ')}');
+    }
+    if (takenMeds != null) parts.add('Medications taken today: $takenMeds');
+    if (hydrationMl != null) {
+      final pct = ((hydrationMl / 2000) * 100).clamp(0, 100).round();
+      parts.add('Water intake today: ${hydrationMl}ml of 2000ml goal ($pct%)');
+    }
     if (mood != null) parts.add('Mood today: $mood');
     parts.add('Current time: ${DateTime.now().toString().substring(0, 16)}');
     _userContext = parts.join('. ');
@@ -212,8 +225,8 @@ IMPORTANT RULES:
           'model': 'command-r-08-2024',
           'messages': messages,
           'tools': tools,
-          'max_tokens': 200,
-          'temperature': 0.6,
+          'max_tokens': 300,
+          'temperature': 0.5,
         }),
       );
 

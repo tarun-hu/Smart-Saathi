@@ -41,7 +41,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   String _partialText = '';
   String _aiResponse = '';
   bool _isConversationMode = false;
-  Timer? _voiceCommandTimer; Timer? _conversationTimer;
+  Timer? _voiceCommandTimer;
+  Timer? _conversationTimer;
+  List<String> _pendingMedNames = [];
+  int _takenMeds = 0;
 
   late AnimationController _pulseController;
   late AnimationController _sosGlowController;
@@ -68,7 +71,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     await _voice.initialize();
     await _notif.initialize();
     await _ai.initialize();
+
+    // Run daily medication reset if needed (resets taken→pending each new day)
+    await _supabase.checkAndRunDailyReset();
+
     await _loadData();
+
+    // Schedule hydration reminders
+    await _notif.scheduleHydrationReminders();
 
     // Start wake word listening — "Hey Saathi"
     _startWakeWordMode();
@@ -106,8 +116,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       final wellbeing = await _supabase.getTodayWellbeing();
       final nominees = await _supabase.getNominees();
       final hydrationLogs = await _supabase.getTodayHydrationLogs();
+      final allMeds = await _supabase.getMedications();
+      final takenMeds = await _supabase.getTakenMedsCount();
 
       if (mounted) {
+        final pendingNames = allMeds
+            .where((m) => m.status == 'pending')
+            .map((m) => m.name)
+            .toList();
+
         setState(() {
           _userName = profile?['full_name'] ?? 'Friend';
           _userPhone = profile?['phone'] ?? '';
@@ -116,14 +133,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _todayMood = wellbeing?.mood;
           _nominees = nominees;
           _hydrationLogs = hydrationLogs;
+          _pendingMedNames = pendingNames;
+          _takenMeds = takenMeds;
         });
 
-        // Update AI service with user context
+        // Update AI service with rich user context
         _ai.updateUserContext(
           userName: _userName,
           pendingMeds: _pendingMeds,
           hydrationMl: _hydrationMl,
           mood: _todayMood,
+          pendingMedNames: _pendingMedNames,
+          takenMeds: _takenMeds,
         );
       }
     } catch (e) {
@@ -131,7 +152,33 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
-  // ──── VOICE ASSISTANT ──────────────────────────
+  // ---- DISTRESS DETECTION --------------------------------------------------
+
+  /// Returns true if the spoken text contains distress/emergency keywords.
+  /// When true, SOS is triggered immediately without waiting for AI.
+  bool _isDistressKeyword(String text) {
+    final lower = text.toLowerCase().trim();
+    const distressKeywords = [
+      // English
+      'chest pain', 'heart attack', 'heart pain', 'cannot breathe',
+      'can\'t breathe', 'cant breathe', 'difficulty breathing',
+      'extreme pain', 'severe pain', 'unbearable pain',
+      'fallen', 'i fell', 'i have fallen', 'i\'m falling',
+      'unconscious', 'fainted', 'stroke', 'bleeding', 'bleeding badly',
+      'help me', 'call ambulance', 'call the ambulance', 'call 108',
+      'emergency', 'i am dying', 'i\'m dying',
+      // Hindi
+      'sine mein dard', 'seene mein dard', 'dil ka dora',
+      'sans nahi', 'saans nahi', 'saans nahi aa rahi',
+      'bahut dard', 'bhaari dard', 'bahut takleef',
+      'gir gaya', 'gir gayi', 'gir gaye', 'gir gaya hun',
+      'madad karo', 'madad chahiye', 'bachao',
+      'ambulance bulao', 'doctor bulao',
+    ];
+    return distressKeywords.any((kw) => lower.contains(kw));
+  }
+
+  // ---- VOICE ASSISTANT -------------------------------------------------------
 
   Future<void> _startVoice() async {
     // Toggle off if already active
@@ -144,7 +191,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _isConversationMode = false;
       });
       _voiceCommandTimer?.cancel();
-    _conversationTimer?.cancel();
+      _conversationTimer?.cancel();
       // Resume wake word mode
       _startWakeWordMode();
       return;
@@ -171,7 +218,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
 
-void _startActiveListening() {
+  void _startActiveListening() {
     _voice.startListening(
       (text) {
         // Cancel any existing timer and start a new 2‑second debounce before processing
@@ -250,6 +297,13 @@ void _startActiveListening() {
     if (text.trim().isEmpty) return;
     _voiceCommandTimer?.cancel();
     _conversationTimer?.cancel();
+    
+    // Check for distress keywords first
+    if (_isDistressKeyword(text)) {
+      await _triggerSos();
+      return;
+    }
+
     _voice.setProcessing(true);
     var shouldEnterConversationMode = true;
 
@@ -308,6 +362,7 @@ void _startActiveListening() {
               final pending = meds.where((m) => m.status == 'pending').toList();
               if (pending.isNotEmpty) {
                 await _supabase.updateMedicationStatus(pending.first.id, 'taken');
+                await _notif.stopMedicationReminder(pending.first.id.hashCode);
                 await _voice.speak(_voice.isHindi
                     ? 'बहुत अच्छे! "${pending.first.name}" ली गई।'
                     : 'Great! "${pending.first.name}" marked as taken.');
@@ -324,7 +379,6 @@ void _startActiveListening() {
             }
             break;
           case 'log_water':
-            // Handle both 'glasses' and 'amount' keys, and handle string/int types
             int amount = 250;
             if (args.containsKey('glasses')) {
               final glasses = int.tryParse(args['glasses'].toString()) ?? 1;
@@ -376,36 +430,30 @@ void _startActiveListening() {
                 : 'I am not sure how to do that.');
         }
       } else {
-      // Simple keyword navigation fallback
-      final lower = text.toLowerCase();
-      if (lower.contains('medication') || lower.contains('medicines') || lower.contains('meds')) {
-        await _voice.speak(_voice.isHindi ? 'दवाइयाँ दिखाता हूँ' : 'Opening medications');
-        if (mounted) context.go('/meds');
-        return;
+        // Text response — keyword nav fallback first, then speak AI text
+        shouldEnterConversationMode = false; // default: nav doesn't re-enter conv
+        final lower = text.toLowerCase();
+        if (lower.contains('medication') || lower.contains('medicines') || lower.contains('meds')) {
+          await _voice.speak(_voice.isHindi ? 'दवाइयाँ दिखाता हूँ' : 'Opening medications');
+          if (mounted) context.go('/meds');
+        } else if (lower.contains('report') || lower.contains('reports') || lower.contains('health')) {
+          await _voice.speak(_voice.isHindi ? 'रिपोर्ट दिखाता हूँ' : 'Opening health reports');
+          if (mounted) context.go('/wellbeing');
+        } else if (lower.contains('profile')) {
+          await _voice.speak(_voice.isHindi ? 'प्रोफ़ाइल दिखाता हूँ' : 'Opening profile');
+          if (mounted) context.go('/profile');
+        } else if (lower.contains('home')) {
+          await _voice.speak(_voice.isHindi ? 'मुख पेज पर जा रहा हूँ' : 'Going to home');
+          if (mounted) context.go('/home');
+        } else if (aiResponse.text != null && aiResponse.text!.isNotEmpty) {
+          // Genuine AI text response — stay in conversation
+          shouldEnterConversationMode = true;
+          if (mounted) setState(() => _aiResponse = aiResponse.text!);
+          await _voice.speak(aiResponse.text!);
+        } else {
+          await _voice.speak(_voice.isHindi ? 'समझ नहीं आया। कृपया फिर से कहें।' : 'I am not sure how to do that.');
+        }
       }
-      if (lower.contains('report') || lower.contains('reports') || lower.contains('health')) {
-        await _voice.speak(_voice.isHindi ? 'रिपोर्ट दिखाता हूँ' : 'Opening health reports');
-        if (mounted) context.go('/wellbeing');
-        return;
-      }
-      if (lower.contains('profile')) {
-        await _voice.speak(_voice.isHindi ? 'प्रोफ़ाइल दिखाता हूँ' : 'Opening profile');
-        if (mounted) context.go('/profile');
-        return;
-      }
-      if (lower.contains('home')) {
-        await _voice.speak(_voice.isHindi ? 'मुख पेज पर जा रहा हूँ' : 'Going to home');
-        if (mounted) context.go('/home');
-        return;
-      }
-      // Existing AI text response handling
-      if (aiResponse.text != null && aiResponse.text!.isNotEmpty) {
-        if (mounted) setState(() => _aiResponse = aiResponse.text!);
-        await _voice.speak(aiResponse.text!);
-      } else {
-        await _voice.speak(_voice.isHindi ? 'समझ नहीं आया। कृपया फिर से कहें।' : 'I am not sure how to do that.');
-      }
-    }
 
       await _loadData();
     } catch (e) {

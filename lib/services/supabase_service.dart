@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/medication.dart';
@@ -551,8 +552,10 @@ class SupabaseService {
     return result.map<SosEvent>((m) => SosEvent.fromJson(m)).toList();
   }
 
-  // ──── SUMMARY HELPERS ──────────────────────────
+  // ---- SUMMARY HELPERS ------------------------------------------------------
 
+  /// Returns count of pending medications.
+  /// The daily reset ensures taken meds are reverted to pending each morning.
   Future<int> getPendingMedsCount() async {
     if (userId == null) return 0;
     final result = await _client
@@ -571,5 +574,37 @@ class SupabaseService {
         .eq('user_id', userId!)
         .eq('status', 'taken');
     return result.length;
+  }
+
+  /// Reset all 'taken' medications back to 'pending' for a new day.
+  /// Should be called once per day at app start (after midnight).
+  Future<void> resetDailyMedications() async {
+    if (userId == null) return;
+    try {
+      await _client
+          .from('medications')
+          .update({'status': 'pending', 'taken_at': null})
+          .eq('user_id', userId!)
+          .eq('status', 'taken');
+      debugPrint('Daily medication reset: all taken medications set to pending');
+    } catch (e) {
+      debugPrint('Failed to reset daily medications: $e');
+    }
+  }
+
+  /// Check if a daily medication reset is due, and run it if so.
+  /// Compares last reset date stored in SharedPreferences to today's date.
+  Future<bool> checkAndRunDailyReset() async {
+    final prefs = await SharedPreferences.getInstance();
+    final today = DateTime.now();
+    final todayKey = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+    final lastReset = prefs.getString('last_med_reset_date') ?? '';
+
+    if (lastReset != todayKey) {
+      await resetDailyMedications();
+      await prefs.setString('last_med_reset_date', todayKey);
+      return true; // reset was performed
+    }
+    return false; // already reset today
   }
 }

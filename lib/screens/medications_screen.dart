@@ -340,27 +340,55 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
             return;
           }
 
+          // Block wake-word from interrupting this flow
+          _voice.setProcessing(true);
+
+          // Speak prompt FIRST, then listen (original order was reversed — bug fix)
+          await _voice.speak('Tell me the medicine name and time');
+
           _voice.startListening((text) async {
-            final aiResponse = await AIService.instance.chat(text);
-            if (aiResponse.isToolCall && aiResponse.toolName == 'add_medication') {
-              final args = aiResponse.toolArgs ?? {};
-              final name = args['name'] as String? ?? '';
-              final time = args['time'] as String? ?? '8:00 AM';
-              final freq = args['frequency'] as String? ?? 'daily';
-              if (name.isNotEmpty) {
-                try {
-                  final medication =
-                      await _supabase.addMedication(name, '1 tablet', time, freq);
-                  _upsertMedication(medication);
-                  unawaited(_speakIfReady('Added $name at $time'));
-                } catch (e) {
-                  _showSnack(
-                      'Could not add medicine by voice: ${_friendlyError(e)}');
+            _voice.setProcessing(true);
+            try {
+              final aiResponse = await AIService.instance.chat(text);
+              if (aiResponse.isToolCall &&
+                  aiResponse.toolName == 'add_medication') {
+                final args = aiResponse.toolArgs ?? {};
+                final name = args['name'] as String? ?? '';
+                final time = args['time'] as String? ?? '8:00 AM';
+                final freq = args['frequency'] as String? ?? 'daily';
+                if (name.isNotEmpty) {
+                  try {
+                    final medication = await _supabase.addMedication(
+                        name, '1 tablet', time, freq);
+                    _upsertMedication(medication);
+                    await NotificationService().scheduleMedicationReminder(
+                      id: medication.id.hashCode,
+                      medName: name,
+                      dosage: '1 tablet',
+                      time: time,
+                    );
+                    unawaited(
+                        _speakIfReady('Added $name. Reminder set for $time'));
+                  } catch (e) {
+                    _showSnack(
+                        'Could not add medicine by voice: ${_friendlyError(e)}');
+                  }
+                } else {
+                  // AI needs more info — speak the question and re-listen
+                  unawaited(_speakIfReady(
+                      'I need the medicine name. Please say it again.'));
                 }
+              } else if (aiResponse.text != null &&
+                  aiResponse.text!.isNotEmpty) {
+                // AI asked a clarifying question — speak it
+                unawaited(_speakIfReady(aiResponse.text!));
               }
+            } catch (e) {
+              _showSnack('Voice error: ${_friendlyError(e)}');
+            } finally {
+              _voice.setProcessing(false);
             }
           });
-          await _voice.speak('Tell me the medicine name and time');
         },
         icon: const Icon(Icons.mic, color: Colors.white),
         label: Text('Add by Voice',
@@ -454,7 +482,7 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
             GestureDetector(
               onTap: () async {
                 await _supabase.updateMedicationStatus(med.id, 'taken');
-                // Stop spoken reminder for this medication
+                // Cancel OS notification for this medication
                 await NotificationService().stopMedicationReminder(med.id.hashCode);
                 unawaited(_speakIfReady('${med.name} marked as taken'));
               },
