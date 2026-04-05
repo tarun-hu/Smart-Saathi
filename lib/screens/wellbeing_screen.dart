@@ -12,6 +12,8 @@ import '../models/vital_log.dart';
 
 enum VitalViewMode { log, graph }
 
+enum VitalTimeRange { today, week, month, threeMonths }
+
 class WellbeingScreen extends StatefulWidget {
   const WellbeingScreen({super.key});
 
@@ -29,11 +31,15 @@ class _WellbeingScreenState extends State<WellbeingScreen>
 
   // ── Vitals Dashboard State ──────────────────────
   VitalViewMode _viewMode = VitalViewMode.log;
-  DateTime _selectedDate = DateTime.now();
-  List<VitalLog> _filteredVitals = [];
-  bool _isVitalsLoading = false;
+
   int? _touchedBsIndex;
   int? _touchedBpIndex;
+
+  // ── Time Range Filter State ────────────────────
+  VitalTimeRange _timeRange = VitalTimeRange.today;
+  List<VitalLog> _rangeVitals = [];
+  bool _isRangeLoading = false;
+  bool _rangeHasError = false;
 
   @override
   void initState() {
@@ -51,27 +57,95 @@ class _WellbeingScreenState extends State<WellbeingScreen>
           _isLoading = false;
         });
       }
-      // Load filtered vitals for the selected date in parallel
-      await _loadVitalsForDate(_selectedDate);
+      // Load range vitals (primary)
+      await _loadVitalsForRange();
     } catch (e) {
+
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _loadVitalsForDate(DateTime date) async {
+  // Compute the [from, to) window for the selected range
+  (DateTime, DateTime) _rangeWindow() {
+    final now = DateTime.now();
+    final startOfToday = DateTime(now.year, now.month, now.day);
+    final startOfTomorrow = DateTime(now.year, now.month, now.day + 1);
+    switch (_timeRange) {
+      case VitalTimeRange.today:
+        return (startOfToday, startOfTomorrow);
+      case VitalTimeRange.week:
+        return (startOfTomorrow.subtract(const Duration(days: 7)), startOfTomorrow);
+      case VitalTimeRange.month:
+        return (DateTime(now.year, now.month - 1, now.day + 1), startOfTomorrow);
+      case VitalTimeRange.threeMonths:
+        return (DateTime(now.year, now.month - 3, now.day + 1), startOfTomorrow);
+    }
+  }
+
+  Future<void> _loadVitalsForRange() async {
     if (!mounted) return;
-    setState(() => _isVitalsLoading = true);
+    setState(() {
+      _isRangeLoading = true;
+      _rangeHasError = false;
+    });
     try {
-      final vitals = await _supabase.getVitalLogsForDay(date);
+      final (from, to) = _rangeWindow();
+      final vitals = await _supabase.getVitalLogsForRange(from, to);
       if (mounted) {
         setState(() {
-          _filteredVitals = vitals;
-          _isVitalsLoading = false;
+          _rangeVitals = vitals;
+          _isRangeLoading = false;
         });
       }
     } catch (e) {
-      if (mounted) setState(() => _isVitalsLoading = false);
+      if (mounted) {
+        setState(() {
+          _isRangeLoading = false;
+          _rangeHasError = true;
+        });
+      }
     }
+  }
+
+  /// Downsample a list of vitals to one representative log per calendar day.
+  /// For blood_sugar: averages the [value] field.
+  /// For blood_pressure: averages systolic and diastolic separately.
+  List<VitalLog> _aggregateToDailyAverages(List<VitalLog> logs) {
+    final Map<String, List<VitalLog>> byDay = {};
+    for (final log in logs) {
+      final key =
+          '${log.timestamp.year}-${log.timestamp.month.toString().padLeft(2, '0')}-${log.timestamp.day.toString().padLeft(2, '0')}';
+      byDay.putIfAbsent(key, () => []).add(log);
+    }
+    final result = <VitalLog>[];
+    for (final entry in byDay.entries.toList()..sort((a, b) => a.key.compareTo(b.key))) {
+      final dayLogs = entry.value;
+      final first = dayLogs.first;
+      if (first.type == 'blood_sugar') {
+        final avg = dayLogs.map((l) => l.value ?? 0.0).reduce((a, b) => a + b) / dayLogs.length;
+        result.add(VitalLog(
+          id: first.id,
+          userId: first.userId,
+          type: first.type,
+          value: avg,
+          timestamp: DateTime(first.timestamp.year, first.timestamp.month, first.timestamp.day, 12),
+        ));
+      } else {
+        final avgSys =
+            dayLogs.map((l) => l.systolic ?? 0).reduce((a, b) => a + b) ~/ dayLogs.length;
+        final avgDia =
+            dayLogs.map((l) => l.diastolic ?? 0).reduce((a, b) => a + b) ~/ dayLogs.length;
+        result.add(VitalLog(
+          id: first.id,
+          userId: first.userId,
+          type: first.type,
+          systolic: avgSys,
+          diastolic: avgDia,
+          timestamp: DateTime(first.timestamp.year, first.timestamp.month, first.timestamp.day, 12),
+        ));
+      }
+    }
+    return result;
   }
 
   // ──── HEALTH REPORTS ───────────────────────────
@@ -391,8 +465,8 @@ class _WellbeingScreenState extends State<WellbeingScreen>
 
     if (result != null) {
       await _supabase.addVitalLog(type: 'blood_sugar', value: result);
-      // Targeted refresh: only reload vitals for selected date (no full page reload)
-      await _loadVitalsForDate(_selectedDate);
+      // Refresh range views
+      await _loadVitalsForRange();
     }
   }
 
@@ -492,8 +566,8 @@ class _WellbeingScreenState extends State<WellbeingScreen>
         systolic: result['systolic'],
         diastolic: result['diastolic'],
       );
-      // Targeted refresh: only reload vitals for selected date (no full page reload)
-      await _loadVitalsForDate(_selectedDate);
+      // Refresh range views
+      await _loadVitalsForRange();
     }
   }
 
@@ -745,9 +819,15 @@ class _WellbeingScreenState extends State<WellbeingScreen>
   // ──── VITALS TAB ───────────────────────────────
 
   Widget _vitalsTab() {
-    final filteredBs = _filteredVitals.where((v) => v.type == 'blood_sugar').toList();
-    final filteredBp = _filteredVitals.where((v) => v.type == 'blood_pressure').toList();
-    final isToday = _isSameDay(_selectedDate, DateTime.now());
+    // In range mode, use _rangeVitals; always separate by type
+    final rangeBs = _rangeVitals.where((v) => v.type == 'blood_sugar').toList();
+    final rangeBp = _rangeVitals.where((v) => v.type == 'blood_pressure').toList();
+
+    // For graph view: downsample only for month/3month ranges (not today or week)
+    final shouldAggregate = _timeRange == VitalTimeRange.month ||
+        _timeRange == VitalTimeRange.threeMonths;
+    final graphBs = shouldAggregate ? _aggregateToDailyAverages(rangeBs) : rangeBs;
+    final graphBp = shouldAggregate ? _aggregateToDailyAverages(rangeBp) : rangeBp;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 80),
@@ -778,26 +858,25 @@ class _WellbeingScreenState extends State<WellbeingScreen>
               ),
             ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
+
+          // ── Time Range Filter Dropdown (global) ──
+          _buildTimeRangeFilter(),
+          const SizedBox(height: 16),
 
           // ── Segmented Control ──
           _buildSegmentedControl(),
           const SizedBox(height: 16),
 
-          // ── Date Navigation ──
-          _buildDateNavigator(isToday),
+          // ── Range header (replaces date navigator) ──
+          _buildRangeHeader(),
           const SizedBox(height: 20),
 
           // ── Conditional Body ──
-          if (_isVitalsLoading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 60),
-              child: Center(child: CircularProgressIndicator(color: Color(0xFF2E7D32))),
-            )
-          else if (_viewMode == VitalViewMode.log)
-            _buildLogView(filteredBs, filteredBp)
+          if (_viewMode == VitalViewMode.log)
+            _buildRangeLogView(rangeBs, rangeBp)
           else
-            _buildGraphView(filteredBs, filteredBp),
+            _buildRangeGraphView(graphBs, graphBp),
         ],
       ),
     );
@@ -889,9 +968,16 @@ class _WellbeingScreenState extends State<WellbeingScreen>
     );
   }
 
-  // ── Date Navigator ───────────────────────────────
+  // ── Time Range Filter Dropdown ───────────────────
 
-  Widget _buildDateNavigator(bool isToday) {
+  static const _rangeLabels = {
+    VitalTimeRange.today: 'Today',
+    VitalTimeRange.week: 'Past 7 Days',
+    VitalTimeRange.month: 'Past 1 Month',
+    VitalTimeRange.threeMonths: 'Past 3 Months',
+  };
+
+  Widget _buildTimeRangeFilter() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
@@ -907,208 +993,585 @@ class _WellbeingScreenState extends State<WellbeingScreen>
       ),
       child: Row(
         children: [
-          // Prev day
-          GestureDetector(
-            onTap: () {
-              final prev = _selectedDate.subtract(const Duration(days: 1));
-              setState(() => _selectedDate = prev);
-              _loadVitalsForDate(prev);
-            },
-            child: Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.chevron_left_rounded, size: 22, color: Color(0xFF2E7D32)),
+          Icon(Icons.date_range_rounded,
+              size: 20, color: const Color(0xFF2E7D32)),
+          const SizedBox(width: 10),
+          Text(
+            'Time Range',
+            style: GoogleFonts.poppins(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFF1A237E),
             ),
           ),
-          // Date label — tap to open calendar picker
-          Expanded(
-            child: GestureDetector(
-              onTap: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: _selectedDate,
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime.now(),
-                  builder: (ctx, child) => Theme(
-                    data: ThemeData.light().copyWith(
-                      colorScheme: const ColorScheme.light(
-                        primary: Color(0xFF2E7D32),
-                        onPrimary: Colors.white,
-                        surface: Colors.white,
-                      ),
-                      textButtonTheme: TextButtonThemeData(
-                        style: TextButton.styleFrom(
-                          foregroundColor: const Color(0xFF2E7D32),
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF2E7D32).withAlpha(12),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFF2E7D32).withAlpha(40)),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<VitalTimeRange>(
+                value: _timeRange,
+                isDense: true,
+                icon: const Icon(Icons.keyboard_arrow_down_rounded,
+                    color: Color(0xFF2E7D32), size: 20),
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF2E7D32),
+                ),
+                onChanged: (val) {
+                  if (val == null || val == _timeRange) return;
+                  setState(() => _timeRange = val);
+                  _loadVitalsForRange();
+                },
+                items: VitalTimeRange.values
+                    .map((r) => DropdownMenuItem(
+                          value: r,
+                          child: Text(_rangeLabels[r]!),
+                        ))
+                    .toList(),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Range Summary Header ─────────────────────────
+
+  Widget _buildRangeHeader() {
+    final (from, to) = _rangeWindow();
+    // "to" is actually the first instant of tomorrow; show yesterday's date
+    final displayTo = to.subtract(const Duration(days: 1));
+    final fromLabel = DateFormat('MMM d').format(from);
+    final toLabel = DateFormat('MMM d, yyyy').format(displayTo);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF2E7D32).withAlpha(10),
+            const Color(0xFF1565C0).withAlpha(8),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFF2E7D32).withAlpha(25)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF2E7D32).withAlpha(18),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.timeline_rounded,
+                size: 16, color: Color(0xFF2E7D32)),
+          ),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _rangeLabels[_timeRange]!,
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF1A237E),
+                ),
+              ),
+              Text(
+                '$fromLabel – $toLabel',
+                style: GoogleFonts.poppins(
+                  fontSize: 11,
+                  color: Colors.grey.shade500,
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          if (_isRangeLoading)
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Color(0xFF2E7D32),
+              ),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2E7D32).withAlpha(15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '${_rangeVitals.length} readings',
+                style: GoogleFonts.poppins(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF2E7D32),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ── Skeleton Shimmer ─────────────────────────────
+
+  Widget _buildChartSkeleton() {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.4, end: 1.0),
+      duration: const Duration(milliseconds: 900),
+      curve: Curves.easeInOut,
+      builder: (_, opacity, _) => Opacity(
+        opacity: opacity,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Title placeholder
+            Container(
+              width: 120,
+              height: 14,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              width: 80,
+              height: 10,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Chart area placeholder
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                height: 160,
+                color: Colors.grey.shade100,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: List.generate(
+                    10,
+                    (i) => Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: FractionallySizedBox(
+                          heightFactor: 0.3 + ((i * 0.07) % 0.6),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade200,
+                              borderRadius: const BorderRadius.vertical(
+                                  top: Radius.circular(4)),
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                    child: child!,
                   ),
-                );
-                if (picked != null && mounted) {
-                  setState(() => _selectedDate = picked);
-                  _loadVitalsForDate(picked);
-                }
-              },
-              child: Column(
-                children: [
-                  Text(
-                    isToday ? 'Today' : DateFormat('EEEE').format(_selectedDate),
-                    style: GoogleFonts.poppins(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFF1A237E),
-                    ),
-                  ),
-                  Text(
-                    DateFormat('MMM d, yyyy').format(_selectedDate),
-                    style: GoogleFonts.poppins(
-                      fontSize: 12,
-                      color: Colors.grey.shade500,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
-          ),
-          // Next day (disabled if today)
-          GestureDetector(
-            onTap: isToday
-                ? null
-                : () {
-                    final next = _selectedDate.add(const Duration(days: 1));
-                    setState(() => _selectedDate = next);
-                    _loadVitalsForDate(next);
-                  },
-            child: Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: isToday ? Colors.grey.shade50 : Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(
-                Icons.chevron_right_rounded,
-                size: 22,
-                color: isToday ? Colors.grey.shade300 : const Color(0xFF2E7D32),
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  // ── LOG VIEW ────────────────────────────────────
+  // ── Range-Aware Graph View (with skeleton + error boundary) ──
 
-  Widget _buildLogView(List<VitalLog> bs, List<VitalLog> bp) {
-    if (bs.isEmpty && bp.isEmpty) {
-      return _buildVitalsEmptyState();
-    }
+  Widget _buildRangeGraphView(List<VitalLog> bs, List<VitalLog> bp) {
+    final isAggregated = _timeRange == VitalTimeRange.month ||
+        _timeRange == VitalTimeRange.threeMonths;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (bs.isNotEmpty) ...[
-          _sectionHeader('🩸 Blood Sugar', const Color(0xFFE53935)),
-          const SizedBox(height: 10),
-          // Summary strip
-          _buildLogSummaryStrip(
-            bs,
-            valueExtractor: (v) => v.value ?? 0,
-            unit: 'mg/dL',
-            color: const Color(0xFFE53935),
-          ),
-          const SizedBox(height: 10),
-          ...bs.reversed.map((v) => _vitalCard(v, const Color(0xFFE53935), Colors.red.shade50)),
-          const SizedBox(height: 24),
-        ],
-        if (bp.isNotEmpty) ...[
-          _sectionHeader('💗 Blood Pressure', const Color(0xFF1565C0)),
-          const SizedBox(height: 10),
-          _buildBpSummaryStrip(bp),
-          const SizedBox(height: 10),
-          ...bp.reversed.map((v) => _vitalCard(v, const Color(0xFF1565C0), Colors.blue.shade50)),
-        ],
+        // Blood Sugar Chart Card
+        _buildRangeChartCard(
+          title: '🩸 Blood Sugar',
+          subtitle: 'mg/dL — Normal: 70–140${isAggregated ? ' · Daily averages' : ''}',
+          color: const Color(0xFFE53935),
+          isLoading: _isRangeLoading,
+          hasError: _rangeHasError,
+          isEmpty: bs.isEmpty,
+          onRetry: _loadVitalsForRange,
+          child: _buildBloodSugarChart(bs),
+        ),
+        const SizedBox(height: 20),
+        // Blood Pressure Chart Card
+        _buildRangeChartCard(
+          title: '💗 Blood Pressure',
+          subtitle: 'mmHg — Normal: 90–130 systolic${isAggregated ? ' · Daily averages' : ''}',
+          color: const Color(0xFF1565C0),
+          isLoading: _isRangeLoading,
+          hasError: _rangeHasError,
+          isEmpty: bp.isEmpty,
+          onRetry: _loadVitalsForRange,
+          child: _buildBloodPressureChart(bp),
+        ),
       ],
     );
   }
 
-  Widget _buildLogSummaryStrip(
-    List<VitalLog> vitals, {
-    required double Function(VitalLog) valueExtractor,
-    required String unit,
+  Widget _buildRangeChartCard({
+    required String title,
+    required String subtitle,
     required Color color,
+    required bool isLoading,
+    required bool hasError,
+    required bool isEmpty,
+    required VoidCallback onRetry,
+    required Widget child,
   }) {
-    if (vitals.isEmpty) return const SizedBox.shrink();
-    final values = vitals.map(valueExtractor).toList();
-    final avg = values.reduce((a, b) => a + b) / values.length;
-    final min = values.reduce((a, b) => a < b ? a : b);
-    final max = values.reduce((a, b) => a > b ? a : b);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: color.withAlpha(10),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withAlpha(30)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(7),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _stripStat('Min', '${min.toStringAsFixed(0)} $unit', color),
-          _vertDivider(color),
-          _stripStat('Avg', '${avg.toStringAsFixed(0)} $unit', color),
-          _vertDivider(color),
-          _stripStat('Max', '${max.toStringAsFixed(0)} $unit', color),
+          if (!isLoading) ...[
+            Text(title,
+                style: GoogleFonts.poppins(
+                    fontSize: 16, fontWeight: FontWeight.w700, color: color)),
+            Text(subtitle,
+                style: GoogleFonts.poppins(
+                    fontSize: 11, color: Colors.grey.shade500)),
+            const SizedBox(height: 16),
+          ],
+          // Loading skeleton
+          if (isLoading)
+            _buildChartSkeleton()
+          // Error boundary — chart failure doesn't crash the tab
+          else if (hasError)
+            _buildChartErrorState(onRetry)
+          // Empty state specific to this range
+          else if (isEmpty)
+            _buildRangeEmptyState()
+          // The actual chart
+          else
+            child,
         ],
       ),
     );
   }
 
-  Widget _buildBpSummaryStrip(List<VitalLog> vitals) {
-    if (vitals.isEmpty) return const SizedBox.shrink();
-    final sysList = vitals.map((v) => v.systolic ?? 0).toList();
-    final diaList = vitals.map((v) => v.diastolic ?? 0).toList();
-    final avgSys = sysList.reduce((a, b) => a + b) / sysList.length;
-    final avgDia = diaList.reduce((a, b) => a + b) / diaList.length;
-    const color = Color(0xFF1565C0);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: color.withAlpha(10),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withAlpha(30)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _stripStat('Avg Systolic', '${avgSys.toStringAsFixed(0)} mmHg', color),
-          _vertDivider(color),
-          _stripStat('Avg Diastolic', '${avgDia.toStringAsFixed(0)} mmHg', color),
-        ],
+  Widget _buildChartErrorState(VoidCallback onRetry) {
+    return SizedBox(
+      height: 160,
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.warning_amber_rounded, size: 36, color: Colors.orange.shade400),
+            const SizedBox(height: 8),
+            Text(
+              'Unable to load chart data',
+              style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade700),
+            ),
+            Text(
+              'One or more readings may be malformed.',
+              style: GoogleFonts.poppins(
+                  fontSize: 11, color: Colors.grey.shade400),
+            ),
+            const SizedBox(height: 10),
+            TextButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: Text('Retry', style: GoogleFonts.poppins(fontSize: 13)),
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFF2E7D32),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _stripStat(String label, String value, Color color) {
+  Widget _buildRangeEmptyState() {
+    final label = _rangeLabels[_timeRange]!.toLowerCase();
+    return SizedBox(
+      height: 160,
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.show_chart_rounded, size: 42, color: Colors.grey.shade200),
+            const SizedBox(height: 10),
+            Text(
+              'No data recorded',
+              style: GoogleFonts.poppins(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade500),
+            ),
+            Text(
+              'in the $label',
+              style: GoogleFonts.poppins(
+                  fontSize: 12, color: Colors.grey.shade400),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Range-Aware Log View (separated BS and BP sections) ──
+
+  Widget _buildRangeLogView(List<VitalLog> bs, List<VitalLog> bp) {
+    if (_isRangeLoading) {
+      return _buildLogSkeleton();
+    }
+    if (bs.isEmpty && bp.isEmpty) {
+      return _buildRangeVitalsEmptyState();
+    }
+
+    final isToday = _timeRange == VitalTimeRange.today;
+
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(value,
-            style: GoogleFonts.poppins(
-                fontSize: 14, fontWeight: FontWeight.w700, color: color)),
-        Text(label,
-            style:
-                GoogleFonts.poppins(fontSize: 10, color: color.withAlpha(160))),
+        // ── Blood Sugar Section ──
+        _buildTypeHeader('🩸 Blood Sugar', const Color(0xFFE53935), bs.length),
+        const SizedBox(height: 10),
+        if (bs.isEmpty)
+          _buildTypeEmptyState('blood sugar', const Color(0xFFE53935))
+        else if (isToday)
+          // Today: flat list sorted newest first (with time shown on card)
+          Column(
+            children: (List<VitalLog>.from(bs)..sort((a, b) => b.timestamp.compareTo(a.timestamp)))
+                .map((v) => _vitalCard(v, const Color(0xFFE53935), Colors.red.shade50))
+                .toList(),
+          )
+        else
+          // Ranges: grouped by date within BS section
+          _buildTypeDateGroups(bs, const Color(0xFFE53935), Colors.red.shade50),
+
+        const SizedBox(height: 28),
+
+        // ── Blood Pressure Section ──
+        _buildTypeHeader('💗 Blood Pressure', const Color(0xFF1565C0), bp.length),
+        const SizedBox(height: 10),
+        if (bp.isEmpty)
+          _buildTypeEmptyState('blood pressure', const Color(0xFF1565C0))
+        else if (isToday)
+          Column(
+            children: (List<VitalLog>.from(bp)..sort((a, b) => b.timestamp.compareTo(a.timestamp)))
+                .map((v) => _vitalCard(v, const Color(0xFF1565C0), Colors.blue.shade50))
+                .toList(),
+          )
+        else
+          _buildTypeDateGroups(bp, const Color(0xFF1565C0), Colors.blue.shade50),
       ],
     );
   }
 
-  Widget _vertDivider(Color color) {
-    return Container(width: 1, height: 28, color: color.withAlpha(40));
+  /// Section header with pill showing reading count
+  Widget _buildTypeHeader(String title, Color color, int count) {
+    return Row(
+      children: [
+        Container(
+          width: 4,
+          height: 20,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          title,
+          style: GoogleFonts.poppins(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: color.withAlpha(15),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            '$count',
+            style: GoogleFonts.poppins(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
-  Widget _buildVitalsEmptyState() {
+  /// Empty placeholder for a specific vital type
+  Widget _buildTypeEmptyState(String typeName, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: color.withAlpha(6),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withAlpha(20)),
+      ),
+      child: Text(
+        'No $typeName readings in this period',
+        style: GoogleFonts.poppins(fontSize: 13, color: color.withAlpha(140)),
+      ),
+    );
+  }
+
+  /// Date-grouped list for a single vital type (used in week/month/3month modes)
+  Widget _buildTypeDateGroups(List<VitalLog> vitals, Color color, Color bgColor) {
+    final sorted = List<VitalLog>.from(vitals)
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+    final Map<String, List<VitalLog>> grouped = {};
+    for (final log in sorted) {
+      final key = DateFormat('yyyy-MM-dd').format(log.timestamp);
+      grouped.putIfAbsent(key, () => []).add(log);
+    }
+    final sortedKeys = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final dateKey in sortedKeys) ...[
+          _buildDateGroupHeader(dateKey),
+          const SizedBox(height: 6),
+          for (final vital in grouped[dateKey]!)
+            _vitalCard(vital, color, bgColor),
+          const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildDateGroupHeader(String dateKey) {
+    final date = DateTime.parse(dateKey);
+    final now = DateTime.now();
+    final isToday = _isSameDay(date, now);
+    final isYesterday = _isSameDay(date, now.subtract(const Duration(days: 1)));
+
+    String label;
+    if (isToday) {
+      label = 'Today · ${DateFormat('MMM d').format(date)}';
+    } else if (isYesterday) {
+      label = 'Yesterday · ${DateFormat('MMM d').format(date)}';
+    } else {
+      label = DateFormat('EEEE · MMM d').format(date);
+    }
+
+    return Row(
+      children: [
+        Container(
+          width: 4,
+          height: 16,
+          decoration: BoxDecoration(
+            color: const Color(0xFF2E7D32),
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: GoogleFonts.poppins(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF1A237E),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLogSkeleton() {
+    return Column(
+      children: List.generate(
+        4,
+        (_) => Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          height: 68,
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0.5, end: 1.0),
+            duration: const Duration(milliseconds: 800),
+            curve: Curves.easeInOut,
+            builder: (_, opacity, child) => Opacity(opacity: opacity, child: child),
+            child: Row(
+              children: [
+                const SizedBox(width: 12),
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                        width: 100, height: 12,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade200,
+                          borderRadius: BorderRadius.circular(4),
+                        )),
+                    const SizedBox(height: 6),
+                    Container(
+                        width: 60, height: 10,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade200,
+                          borderRadius: BorderRadius.circular(4),
+                        )),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRangeVitalsEmptyState() {
+    final label = _rangeLabels[_timeRange]!.toLowerCase();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 48),
       child: Column(
@@ -1133,7 +1596,7 @@ class _WellbeingScreenState extends State<WellbeingScreen>
           ),
           const SizedBox(height: 4),
           Text(
-            'Tap a button above to log your first reading\nfor ${DateFormat('MMMM d').format(_selectedDate)}',
+            'No readings found in the $label.\nTap a button above to log your first reading.',
             textAlign: TextAlign.center,
             style: GoogleFonts.poppins(
                 fontSize: 13, color: Colors.grey.shade400),
@@ -1143,90 +1606,6 @@ class _WellbeingScreenState extends State<WellbeingScreen>
     );
   }
 
-  // ── GRAPH VIEW ──────────────────────────────────
-
-  Widget _buildGraphView(List<VitalLog> bs, List<VitalLog> bp) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Blood Sugar Chart
-        _buildChartCard(
-          title: '🩸 Blood Sugar',
-          subtitle: 'mg/dL — Normal: 70–140',
-          color: const Color(0xFFE53935),
-          child: bs.isEmpty
-              ? _buildChartEmptyState('Log blood sugar readings\nto see your trend')
-              : _buildBloodSugarChart(bs),
-        ),
-        const SizedBox(height: 20),
-        // Blood Pressure Chart
-        _buildChartCard(
-          title: '💗 Blood Pressure',
-          subtitle: 'mmHg — Normal: 90–130 systolic',
-          color: const Color(0xFF1565C0),
-          child: bp.isEmpty
-              ? _buildChartEmptyState('Log blood pressure readings\nto see your trend')
-              : _buildBloodPressureChart(bp),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildChartCard({
-    required String title,
-    required String subtitle,
-    required Color color,
-    required Widget child,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(7),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title,
-              style: GoogleFonts.poppins(
-                  fontSize: 16, fontWeight: FontWeight.w700, color: color)),
-          Text(subtitle,
-              style: GoogleFonts.poppins(
-                  fontSize: 11, color: Colors.grey.shade500)),
-          const SizedBox(height: 16),
-          child,
-        ],
-      ),
-    );
-  }
-
-  Widget _buildChartEmptyState(String message) {
-    return SizedBox(
-      height: 150,
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.show_chart_rounded, size: 40, color: Colors.grey.shade300),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: GoogleFonts.poppins(
-                  fontSize: 13, color: Colors.grey.shade400),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   // ── Blood Sugar Line Chart ───────────────────────
 
@@ -1283,10 +1662,31 @@ class _WellbeingScreenState extends State<WellbeingScreen>
                     getTitlesWidget: (v, _) {
                       final idx = v.toInt();
                       if (idx < 0 || idx >= bs.length) return const SizedBox.shrink();
+                      final ts = bs[idx].timestamp;
+                      // Skip interval & format depend on range
+                      final int skipInterval;
+                      final DateFormat fmt;
+                      switch (_timeRange) {
+                        case VitalTimeRange.today:
+                          skipInterval = 2;
+                          fmt = DateFormat('h:mm a');
+                        case VitalTimeRange.week:
+                          skipInterval = 1;
+                          fmt = DateFormat('MMM d');
+                        case VitalTimeRange.month:
+                          skipInterval = 4;
+                          fmt = DateFormat('MMM d');
+                        case VitalTimeRange.threeMonths:
+                          skipInterval = 7;
+                          fmt = DateFormat('MMM');
+                      }
+                      if (idx % skipInterval != 0 && idx != bs.length - 1) {
+                        return const SizedBox.shrink();
+                      }
                       return Padding(
                         padding: const EdgeInsets.only(top: 4),
                         child: Text(
-                          DateFormat('h:mm').format(bs[idx].timestamp),
+                          fmt.format(ts),
                           style: GoogleFonts.poppins(
                               fontSize: 9, color: Colors.grey.shade400),
                         ),
@@ -1477,10 +1877,30 @@ class _WellbeingScreenState extends State<WellbeingScreen>
                     getTitlesWidget: (v, _) {
                       final idx = v.toInt();
                       if (idx < 0 || idx >= bp.length) return const SizedBox.shrink();
+                      final ts = bp[idx].timestamp;
+                      final int skipInterval;
+                      final DateFormat fmt;
+                      switch (_timeRange) {
+                        case VitalTimeRange.today:
+                          skipInterval = 2;
+                          fmt = DateFormat('h:mm a');
+                        case VitalTimeRange.week:
+                          skipInterval = 1;
+                          fmt = DateFormat('MMM d');
+                        case VitalTimeRange.month:
+                          skipInterval = 4;
+                          fmt = DateFormat('MMM d');
+                        case VitalTimeRange.threeMonths:
+                          skipInterval = 7;
+                          fmt = DateFormat('MMM');
+                      }
+                      if (idx % skipInterval != 0 && idx != bp.length - 1) {
+                        return const SizedBox.shrink();
+                      }
                       return Padding(
                         padding: const EdgeInsets.only(top: 4),
                         child: Text(
-                          DateFormat('h:mm').format(bp[idx].timestamp),
+                          fmt.format(ts),
                           style: GoogleFonts.poppins(
                               fontSize: 9, color: Colors.grey.shade400),
                         ),
@@ -1685,12 +2105,6 @@ class _WellbeingScreenState extends State<WellbeingScreen>
         ),
       ),
     );
-  }
-
-  Widget _sectionHeader(String text, Color color) {
-    return Text(text,
-        style: GoogleFonts.poppins(
-            fontSize: 17, fontWeight: FontWeight.w700, color: color));
   }
 
   Widget _vitalCard(VitalLog vital, Color color, Color bgColor) {

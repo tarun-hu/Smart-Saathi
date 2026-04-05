@@ -379,6 +379,25 @@ class SupabaseService {
     }
   }
 
+  /// Fetch all vital logs between [from] and [to] (inclusive/exclusive).
+  /// Reuses the existing timezone-fix pipeline in [_mapVitalLogs].
+  Future<List<VitalLog>> getVitalLogsForRange(
+      DateTime from, DateTime to) async {
+    if (userId == null) return [];
+    final fromUtc = from.toUtc().toIso8601String();
+    final toUtc = to.toUtc().toIso8601String();
+    final result = await _client
+        .from('vital_logs')
+        .select()
+        .eq('user_id', userId!)
+        .gte('timestamp', fromUtc)
+        .lt('timestamp', toUtc)
+        .order('timestamp', ascending: true);
+    final logs = await _mapVitalLogs(result);
+    logs.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return logs;
+  }
+
   Future<List<VitalLog>> getVitalLogs({int limit = 30}) async {
     if (userId == null) return [];
     final result = await _client
