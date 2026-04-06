@@ -8,7 +8,6 @@ import {
 } from "../components/ui/accordion";
 import Data from "../data/faq.json";
 import { Card } from "../components/ui/card";
-import { Button } from "../components/ui/Button";
 import NavBar from "../components/NavBar";
 import { Mail, MessageSquare, HelpCircle } from "lucide-react";
 
