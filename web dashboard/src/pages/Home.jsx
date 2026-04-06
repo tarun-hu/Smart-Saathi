@@ -309,7 +309,7 @@ const Home = () => {
 
               <div className='mx-auto mt-1 overflow-hidden rounded-2xl border-2 border-slate-300 bg-white p-4 shadow-[0_16px_34px_-18px_rgba(15,23,42,0.45)]'>
                 <img
-                  src='/temp/smart_sarthi_qr.png'
+                  src='/temp/smart_sarthi_qr_v2.png'
                   alt='Smart Saathi app download QR code'
                   draggable={false}
                   className='h-58 w-58 select-none object-contain'
@@ -427,7 +427,7 @@ const Home = () => {
                 console.log("download for android");
               }}
               className='py-6 text-lg select-none cursor-pointer'>
-              <a href='https://github.com/tarun-hu/Smart-Saathi/releases/download/v1.0.0/smart_sarthi_app.apk'>
+              <a href='https://github.com/tarun-hu/Smart-Saathi/releases/download/v-2.0.0/app-release.apk'>
                 <Android className='size-5 shrink-0' />
                 <span className='flex-1 text-center'>Download for Android</span>
               </a>
