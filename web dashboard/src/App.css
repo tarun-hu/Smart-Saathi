@@ -148,6 +148,15 @@ h2 {
   @apply text-4xl font-bold;
 }
 
+/* Toast styling for better contrast */
+[data-description] {
+  @apply font-medium !text-foreground/90;
+}
+
+.toaster [role="status"] [data-description] {
+  @apply !text-foreground/85;
+}
+
 @theme inline {
   /* --color-brand-accent: oklch(0.5 0.2 270); */
   --color-brand-accent: oklch(41.568% 0.13555 273.785);

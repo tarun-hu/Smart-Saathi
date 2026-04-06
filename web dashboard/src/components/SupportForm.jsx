@@ -8,7 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "./ui/card";
-import { Button } from "./ui/Button";
+import { Button } from "./ui/button";
 import {
   InputGroup,
   InputGroupAddon,
@@ -54,6 +54,9 @@ const SupportForm = ({ className }) => {
 
   const submitHandler = (data) => {
     console.log("data submitted:", data);
+    toast.success("Your issue has been reported successfully! We'll get back to you soon.", {
+      description: `Issue type: ${data.issueType}`,
+    });
   };
 
   return (
@@ -105,6 +108,9 @@ const SupportForm = ({ className }) => {
                         },
                       })}
                     />
+                    {errors.email && (
+                      <p className='text-sm text-red-500'>{errors.email.message}</p>
+                    )}
                   </Field>
                   <Controller
                     name='issueType'
@@ -155,10 +161,16 @@ const SupportForm = ({ className }) => {
                       type='text'
                       placeholder='enter title'
                       {...register("issueTitle", {
-                        required: true,
-                        minLength: 5,
+                        required: "issue title required",
+                        minLength: {
+                          value: 5,
+                          message: "Title must be at least 5 characters",
+                        },
                       })}
                     />
+                    {errors.issueTitle && (
+                      <p className='text-sm text-red-500'>{errors.issueTitle.message}</p>
+                    )}
                   </Field>
                   <Field>
                     <FieldLabel>Describe your Issue</FieldLabel>
@@ -166,11 +178,20 @@ const SupportForm = ({ className }) => {
                       type='text'
                       placeholder='describe your issue'
                       {...register("issueDescription", {
-                        required: true,
-                        minLength: 20,
-                        maxLength: 200,
+                        required: "description required",
+                        minLength: {
+                          value: 20,
+                          message: "Description must be at least 20 characters",
+                        },
+                        maxLength: {
+                          value: 200,
+                          message: "Description cannot exceed 200 characters",
+                        },
                       })}
                     />
+                    {errors.issueDescription && (
+                      <p className='text-sm text-red-500'>{errors.issueDescription.message}</p>
+                    )}
                   </Field>
                 </FieldGroup>
               </CardContent>
@@ -180,8 +201,7 @@ const SupportForm = ({ className }) => {
                     <Button type='reset'>cancel</Button>
                     <Button
                       type='submit'
-                      disabled={!isDirty || isSubmitting}
-                      onClick={() => toast("event created")}>
+                      disabled={!isDirty || isSubmitting}>
                       Submit
                     </Button>
                   </Field>

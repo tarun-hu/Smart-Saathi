@@ -29,7 +29,8 @@ const Toaster = ({
           "--normal-bg": "var(--popover)",
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
-          "--border-radius": "var(--radius)"
+          "--border-radius": "var(--radius)",
+          "--normal-description": "var(--muted-foreground)"
         }
       }
       {...props} />
