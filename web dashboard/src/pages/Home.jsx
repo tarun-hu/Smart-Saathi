@@ -43,16 +43,34 @@ import { Link } from "react-router-dom";
 import NavBar from "../components/NavBar";
 import { useCarouselControls } from "../hooks/useCarouselControls";
 
+const statsTargets = {
+  seniors: 100,
+  familyMembers: 200,
+  alerts: 999,
+  monitoring: 24,
+  ads: 0,
+};
+
 const Home = () => {
   const AUTOPLAY_DELAY = 5000;
   const HOLD_TO_PAUSE_DELAY = 180;
   const signupPhoneRef = useRef(null);
+  const statsSectionRef = useRef(null);
+  const statsAnimationFrameRef = useRef(null);
+  const hasAnimatedStatsRef = useRef(false);
   const [testimonialCarouselApi, setTestimonialCarouselApi] = useState(null);
   const [activeTestimonialPage, setActiveTestimonialPage] = useState(0);
   const [testimonialAutoplayCycle, setTestimonialAutoplayCycle] = useState(0);
   const [isTestimonialAutoplayPaused, setIsTestimonialAutoplayPaused] =
     useState(false);
   const testimonialHoldPauseTimeoutRef = useRef(null);
+  const [animatedStats, setAnimatedStats] = useState({
+    seniors: 0,
+    familyMembers: 0,
+    alerts: 0,
+    monitoring: 0,
+    ads: 0,
+  });
 
   const testimonialPages = [
     [
@@ -178,6 +196,76 @@ const Home = () => {
     return () => {
       if (testimonialHoldPauseTimeoutRef.current) {
         window.clearTimeout(testimonialHoldPauseTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const statsSection = statsSectionRef.current;
+    if (!statsSection || hasAnimatedStatsRef.current) return;
+
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+
+    const animateStats = () => {
+      if (statsAnimationFrameRef.current) {
+        window.cancelAnimationFrame(statsAnimationFrameRef.current);
+      }
+
+      hasAnimatedStatsRef.current = true;
+
+      if (prefersReducedMotion) {
+        setAnimatedStats(statsTargets);
+        return;
+      }
+
+      const animationDuration = 900;
+      const animationStart = window.performance.now();
+
+      const step = (currentTime) => {
+        const progress = Math.min(
+          (currentTime - animationStart) / animationDuration,
+          1,
+        );
+        const easedProgress = 1 - Math.pow(1 - progress, 3);
+
+        setAnimatedStats({
+          seniors: Math.round(statsTargets.seniors * easedProgress),
+          familyMembers: Math.round(
+            statsTargets.familyMembers * easedProgress,
+          ),
+          alerts: Math.round(statsTargets.alerts * easedProgress),
+          monitoring: Math.round(statsTargets.monitoring * easedProgress),
+          ads: Math.round(statsTargets.ads * easedProgress),
+        });
+
+        if (progress < 1) {
+          statsAnimationFrameRef.current = window.requestAnimationFrame(step);
+        }
+      };
+
+      statsAnimationFrameRef.current = window.requestAnimationFrame(step);
+    };
+
+    const statsObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          animateStats();
+          statsObserver.disconnect();
+        }
+      },
+      {
+        threshold: 0.35,
+      },
+    );
+
+    statsObserver.observe(statsSection);
+
+    return () => {
+      statsObserver.disconnect();
+      if (statsAnimationFrameRef.current) {
+        window.cancelAnimationFrame(statsAnimationFrameRef.current);
       }
     };
   }, []);
@@ -618,6 +706,7 @@ const Home = () => {
 
         <section
           id='stats'
+          ref={statsSectionRef}
           className='
             flex flex-col
             min-h-50vh h-auto
@@ -652,7 +741,7 @@ const Home = () => {
                 className='
                   text-4xl sm:text-5xl font-black leading-none text-brand-accent
                 '>
-                100
+                {animatedStats.seniors}
                 <span
                   className='
                     inline-block
@@ -690,7 +779,7 @@ const Home = () => {
                 className='
                   text-4xl sm:text-5xl font-black leading-none text-brand-accent
                 '>
-                200
+                {animatedStats.familyMembers}
                 <span
                   className='
                     inline-block
@@ -730,7 +819,7 @@ const Home = () => {
                 className='
                   text-4xl sm:text-5xl font-black leading-none text-brand-accent
                 '>
-                999
+                {animatedStats.alerts}
                 <span
                   className='
                     inline-block
@@ -768,7 +857,7 @@ const Home = () => {
                 className='
                   text-4xl sm:text-5xl font-black leading-none text-brand-accent
                 '>
-                24
+                {animatedStats.monitoring}
                 <span
                   className='
                     inline-block
@@ -813,7 +902,7 @@ const Home = () => {
                 className='
                   text-4xl sm:text-5xl font-black leading-none text-brand-accent
                 '>
-                0
+                {animatedStats.ads}
               </h3>
               <p
                 className='
