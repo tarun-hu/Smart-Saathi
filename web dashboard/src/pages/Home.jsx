@@ -1,4 +1,5 @@
 import Apple from "../assets/logos/apple.svg?react";
+import Grandma from "../assets/illustrations/grandma.svg?react"
 import Android from "../assets/logos/android.svg?react";
 import BrandLogo from "../assets/logos/shield.svg?react";
 import Notification from "../assets/illustrations/notification.svg?react";
@@ -25,6 +26,7 @@ import {
 import {
   Activity,
   BellRing,
+  ArrowRight,
   Quote,
   Users2,
   CircleCheckBig,
@@ -249,8 +251,10 @@ const Home = () => {
     <>
       <NavBar />
       <main>
-        <section id='hero' className='min-h-[70vh] mx-30 mt-12 mb-30 relative'>
-          <h1 className='text-8xl font-bold text-left'>
+        <section
+          id='hero'
+          className='min-h-[70vh] mx-4 sm:mx-8 lg:mx-16 xl:mx-30 mt-8 sm:mt-10 lg:mt-12 mb-14 sm:mb-20 lg:mb-30 relative'>
+          <h1 className='max-w-5xl text-4xl sm:text-5xl lg:text-7xl xl:text-8xl font-bold text-left'>
             Let's provide the{" "}
             <span className='relative'>
               care{" "}
@@ -267,11 +271,11 @@ const Home = () => {
           </h1>
           <p
             className='
-              py-8
-              text-2xl text-neutral-200 font-medium
+              py-6 sm:py-8
+              text-base sm:text-lg lg:text-2xl text-neutral-200 font-medium
             '>
             The all-in-one solution designed for you to oversee daily care of
-            <br />
+            <br className='hidden md:block' />
             your loved ones, receive alerts, and take action when it matters
             most.
           </p>
@@ -279,17 +283,22 @@ const Home = () => {
             <AlertDialogTrigger asChild>
               <Button
                 className='
-                  py-6
-                  text-lg
+                  group
+                  py-5 sm:py-6
+                  text-base sm:text-lg
                   select-none
                   cursor-pointer
                   transition-transform
                   duration-300
                   ease-out
-                  hover:scale-110
+                  hover:scale-105
                 '>
-                <span className='flex-1 text-center'>
+                <span className='flex items-center justify-center gap-2 text-center'>
                   Get Cared with Smart Saathi
+                  <ArrowRight
+                    strokeWidth={3}
+                    className='size-4 transition-transform duration-300 ease-out group-hover:translate-x-1'
+                  />
                 </span>
               </Button>
             </AlertDialogTrigger>
@@ -312,7 +321,7 @@ const Home = () => {
                   src='/temp/smart_sarthi_qr_v2.png'
                   alt='Smart Saathi app download QR code'
                   draggable={false}
-                  className='h-58 w-58 select-none object-contain'
+                  className='h-52 w-52 sm:h-58 sm:w-58 select-none object-contain'
                 />
               </div>
 
@@ -326,25 +335,25 @@ const Home = () => {
             </AlertDialogContent>
           </AlertDialog>
 
-          <div className='absolute right-10 top-44'>
+          {/* <div className='hidden lg:block absolute right-10 top-44'>
             <BrandLogo className='size-72 text-white transition-transform duration-300 ease-out hover:scale-110 cursor-pointer' />
-          </div>
+          </div> */}
 
-          {/* <Grandma className='size-80 absolute right-0 -bottom-5 hover:-rotate-2 hover:scale-[1.05] transition' /> */}
+          <Grandma className='size-52 sm:size-64 lg:size-80 absolute right-3 sm:right-0 -bottom-5 drop-shadow-[12px_-8px_20px_rgba(15,23,42,0.22)] hover:-rotate-2 hover:scale-[1.05] transition' />
           {/* <CheckPattern className="size-50 absolute -bottom-55 left-[30%] "/> */}
         </section>
 
         <section
           id='core-features'
           className='
-            flex
+            flex flex-col lg:flex-row
             min-h-screen
-            p-30
+            px-6 py-14 sm:px-10 lg:px-20 xl:px-30
             bg-amber-50
-            relative gap-6 items-baseline
+            relative gap-10 lg:gap-6 items-baseline
           '>
           <div className='flex flex-col flex-1 items-center gap-3'>
-            <Notification className='mb-10 size-38 -translate-x-5' />
+            <Notification className='mb-6 sm:mb-10 size-24 sm:size-30 lg:size-38 translate-x-0 lg:-translate-x-5' />
             <div
               className='
                 inline-block
@@ -357,14 +366,14 @@ const Home = () => {
               <CircleCheckBig size={32} strokeWidth={2} />
             </div>
             <h2>Simplicity </h2>
-            <p className='text-lg text-center'>
+            <p className='text-base sm:text-lg text-center'>
               Easily access health charts, daily check-in messages, medical
               history details, wellness summaries, activity logs, hydration &
               medication reminders and SOS alerts.
             </p>
           </div>
           <div className='flex flex-col flex-1 items-center gap-3'>
-            <Privacy className='mb-10 size-38' />
+            <Privacy className='mb-6 sm:mb-10 size-24 sm:size-30 lg:size-38' />
             <div
               className='
                 inline-block
@@ -377,7 +386,7 @@ const Home = () => {
               <ShieldUser size={32} strokeWidth={2} />
             </div>
             <h2>Privacy </h2>
-            <p className='text-lg text-center'>
+            <p className='text-base sm:text-lg text-center'>
               We collect only essential data to operate the service. Any
               additional data is collected with your consent and handled
               transparently. All data is anonymized, never used for advertising,
@@ -385,7 +394,7 @@ const Home = () => {
             </p>
           </div>
           <div className='flex flex-col flex-1 items-center gap-3'>
-            <UserInterface className='mb-10 size-38' />
+            <UserInterface className='mb-6 sm:mb-10 size-24 sm:size-30 lg:size-38' />
             <div
               className='
                 inline-block
@@ -398,7 +407,7 @@ const Home = () => {
               <Settings2 size={32} strokeWidth={2} />
             </div>
             <h2>Control</h2>
-            <p className='text-lg text-center'>
+            <p className='text-base sm:text-lg text-center'>
               Easily customizable dashboard with one-click presets and advanced
               filters, Personalize feature access, notifications and user
               settings to fit your needs.
@@ -411,22 +420,22 @@ const Home = () => {
           className='
             flex flex-col
             min-h-screen
-            px-30 py-20
+            px-6 py-14 sm:px-10 lg:px-20 xl:px-30
             bg-amber-50
             gap-3 relative items-start
           '>
           <h2>Set up the companion app for your loved one</h2>
-          <p className='text-lg'>
+          <p className='text-base sm:text-lg'>
             Download the app on their phone and connect it to your dashboard{" "}
-            <br /> using a secure pairing code.
+            <br className='hidden sm:block' /> using a secure pairing code.
           </p>
-          <div className='flex mt-5 gap-6'>
+          <div className='flex mt-5 gap-4 sm:gap-6'>
             <Button
               asChild
               onClick={() => {
                 console.log("download for android");
               }}
-              className='py-6 text-lg select-none cursor-pointer'>
+              className='py-5 sm:py-6 text-base sm:text-lg select-none cursor-pointer'>
               <a href='https://github.com/tarun-hu/Smart-Saathi/releases/download/v-2.0.0/app-release.apk'>
                 <Android className='size-5 shrink-0' />
                 <span className='flex-1 text-center'>Download for Android</span>
@@ -440,15 +449,19 @@ const Home = () => {
           <div
             id='setup-phone'
             className='
-              w-80
-              rotate-6 absolute right-40 bottom-26
+              w-52 sm:w-64 lg:w-80
+              rotate-0 lg:rotate-6
+              mt-8
+              self-center lg:self-auto
+              drop-shadow-[0_22px_26px_rgba(15,23,42,0.28)]
+              relative lg:absolute lg:right-16 xl:right-40 lg:bottom-26
             '>
             <div className='w-full relative aspect-842/1589'>
               <div
                 className='
                   overflow-hidden
-                  rounded-[2.6rem]
-                  absolute inset-x-[8.5%] inset-y-[6%]
+                  rounded-[2rem] sm:rounded-[2.35rem] lg:rounded-[2.6rem]
+                  absolute inset-x-[8%] inset-y-[6%]
                 '>
                 <img
                   src='/temp/home_voice_active.png'
@@ -472,8 +485,8 @@ const Home = () => {
           <ul
             className='
               flex flex-col
-              px-5 pt-10
-              text-xl
+              px-1 sm:px-5 pt-8 sm:pt-10
+              text-lg sm:text-xl
               gap-4 list-disc
             '>
             <li>AI-enabled voice chat assistant</li>
@@ -483,13 +496,13 @@ const Home = () => {
           <p
             className='
               pl-3 my-5
-              text-lg
+              text-base sm:text-lg
               border-l-3 border-neutral-600
               italic
             '>
             The companion app is designed for elderly users with limited digital
             experience,
-            <br /> using voice prompts, big easy access buttons, and minimal
+            <br className='hidden sm:block' /> using voice prompts, big easy access buttons, and minimal
             on-screen interaction.
           </p>
 
@@ -511,12 +524,12 @@ const Home = () => {
           ref={signupSectionRef}
           className='
             min-h-screen
-            p-30 pb-36
+            px-6 py-14 pb-22 sm:px-10 lg:px-20 xl:px-30 lg:py-20 lg:pb-36
             bg-neutral-200
             relative
           '>
           <h2>Get started in 3 easy steps</h2>
-          <p className='mt-3 text-lg text-neutral-700'>
+          <p className='mt-3 text-base sm:text-lg text-neutral-700'>
             Start in seconds with a simple signup flow and secure account setup.
           </p>
 
@@ -531,12 +544,12 @@ const Home = () => {
                 <CarouselItem key={step.stepLabel}>
                   <div
                     className='
-                      flex
+                      flex flex-col lg:flex-row
                       w-full
-                      pr-20 pb-8 pt-4
-                      items-center justify-between gap-6
+                      pr-0 lg:pr-20 pb-8 pt-4
+                      items-start lg:items-center justify-between gap-8
                     '>
-                    <div className='max-w-xl'>
+                    <div className='max-w-xl min-h-52 sm:min-h-46 lg:min-h-0'>
                       <p
                         className='
                           text-sm tracking-[0.2em] text-brand-accent font-semibold
@@ -544,20 +557,20 @@ const Home = () => {
                         '>
                         {step.stepLabel}
                       </p>
-                      <h3 className='mt-4 text-5xl font-bold'>{step.title}</h3>
-                      <p className='mt-4 text-xl text-neutral-700'>
+                      <h3 className='mt-4 text-3xl sm:text-4xl lg:text-5xl font-bold'>{step.title}</h3>
+                      <p className='mt-4 text-base sm:text-xl text-neutral-700'>
                         {step.description}
                       </p>
                     </div>
 
-                    <div ref={signupPhoneRef} className='w-76 shrink-0'>
+                    <div ref={signupPhoneRef} className='w-52 sm:w-64 lg:w-76 shrink-0 mx-auto lg:mx-0'>
                       <div className='w-full relative aspect-842/1589'>
                         <div
                           className={`
                             overflow-hidden
-                            rounded-[2.6rem]
-                            absolute inset-x-[10%] inset-y-[6%]
-                            ${step.fitMode === "cover" ? "bg-black" : ""}
+                            rounded-[2rem] sm:rounded-[2.35rem] lg:rounded-[2.6rem]
+                            absolute inset-x-[9.5%] sm:inset-x-[8%] inset-y-[5%] lg:inset-x-[10%]
+                            ${step.fitMode === "cover" ? "bg-black" : "bg-neutral-100"}
                           `}>
                           <img
                             src={step.image}
@@ -574,7 +587,7 @@ const Home = () => {
                           src='/iphone_gray.png'
                           alt='iPhone mockup'
                           draggable={false}
-                          className='z-10 h-full w-full select-none absolute'
+                          className='z-10 h-full w-full select-none absolute drop-shadow-[0_18px_28px_rgba(2,6,23,0.24)]'
                         />
                       </div>
                     </div>
@@ -586,7 +599,7 @@ const Home = () => {
 
           <div
             className='
-              absolute bottom-30 left-1/2 -translate-x-1/2
+              absolute bottom-10 lg:bottom-30 left-1/2 -translate-x-1/2
             '>
             <CarouselPills
               count={signupSteps.length}
@@ -608,9 +621,9 @@ const Home = () => {
           className='
             flex flex-col
             min-h-50vh h-auto
-            px-30 py-20
+            px-6 py-14 sm:px-10 lg:px-20 xl:px-30 lg:py-20
             bg-neutral-800
-            gap-20 relative
+            gap-10 lg:gap-20 relative
           '>
           {/* <h2 className="text-center text-neutral-50">Numbers that matter</h2> */}
           <div
@@ -637,7 +650,7 @@ const Home = () => {
               </div>
               <h3
                 className='
-                  text-5xl font-black leading-none text-brand-accent
+                  text-4xl sm:text-5xl font-black leading-none text-brand-accent
                 '>
                 100
                 <span
@@ -675,7 +688,7 @@ const Home = () => {
               </div>
               <h3
                 className='
-                  text-5xl font-black leading-none text-brand-accent
+                  text-4xl sm:text-5xl font-black leading-none text-brand-accent
                 '>
                 200
                 <span
@@ -715,7 +728,7 @@ const Home = () => {
               </div>
               <h3
                 className='
-                  text-5xl font-black leading-none text-brand-accent
+                  text-4xl sm:text-5xl font-black leading-none text-brand-accent
                 '>
                 999
                 <span
@@ -753,7 +766,7 @@ const Home = () => {
               </div>
               <h3
                 className='
-                  text-5xl font-black leading-none text-brand-accent
+                  text-4xl sm:text-5xl font-black leading-none text-brand-accent
                 '>
                 24
                 <span
@@ -798,7 +811,7 @@ const Home = () => {
               </div>
               <h3
                 className='
-                  text-5xl font-black leading-none text-brand-accent
+                  text-4xl sm:text-5xl font-black leading-none text-brand-accent
                 '>
                 0
               </h3>
@@ -818,7 +831,7 @@ const Home = () => {
           className='
             flex flex-col
             min-h-screen
-            p-30 pb-40
+            px-6 py-14 pb-24 sm:px-10 lg:px-20 xl:px-30 lg:py-20 lg:pb-40
             bg-neutral-100
             relative
           '>
@@ -831,7 +844,7 @@ const Home = () => {
               Testimonials
             </p>
             <h2 className='mt-3 text-neutral-950'>What families are saying</h2>
-            <p className='mt-4 text-lg text-neutral-700'>
+            <p className='mt-4 text-base sm:text-lg text-neutral-700'>
               Dont just take our word for it, experience what our customers have
               to say about the product
             </p>
@@ -914,7 +927,7 @@ const Home = () => {
 
           <div
             className='
-              absolute bottom-20 left-1/2 -translate-x-1/2
+              absolute bottom-8 lg:bottom-20 left-1/2 -translate-x-1/2
             '>
             <CarouselPills
               count={testimonialPages.length}

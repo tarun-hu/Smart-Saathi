@@ -17,17 +17,17 @@ const Contact = () => {
       <NavBar />
 
       {/* Hero Section */}
-      <section className='w-full bg-white p-30 border-b border-slate-200/30'>
+      <section className='w-full bg-white px-6 py-14 sm:px-10 lg:px-20 xl:px-30 border-b border-slate-200/30'>
         <div className='max-w-6xl mx-auto'>
           <div className='flex gap-4 items-center mb-6'>
             <div className='p-3 bg-brand-accent/10 rounded-xl'>
               <MessageSquare className='w-6 h-6 text-brand-accent' />
             </div>
             <div>
-              <h1 className='text-4xl font-extrabold text-slate-900 mb-3'>
+              <h1 className='text-3xl sm:text-4xl font-extrabold text-slate-900 mb-3'>
                 Get in Touch
               </h1>
-              <p className='text-lg text-slate-600 max-w-2xl'>
+              <p className='text-base sm:text-lg text-slate-600 max-w-2xl'>
                 Have a question or encountered an issue? We're here to help. Reach out to our support team
                 and we'll get back to you as soon as possible.
               </p>
@@ -37,7 +37,7 @@ const Contact = () => {
       </section>
 
       {/* Contact & FAQ Section */}
-      <section className='w-full bg-neutral-800 p-30 border-b border-slate-200/30'>
+      <section className='w-full bg-neutral-800 px-6 py-14 sm:px-10 lg:px-20 xl:px-30 border-b border-slate-200/30'>
         <div className='max-w-3xl mx-auto flex flex-col items-center gap-12'>
           <div className='w-full flex flex-col items-center'>
             <div className='flex gap-3 items-center mb-8'>

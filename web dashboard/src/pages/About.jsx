@@ -30,13 +30,13 @@ const About = () => {
     <>
       <NavBar />
       <main className='w-full'>
-        <section className='relative overflow-hidden border-y border-white/25 bg-white p-30'>
+        <section className='relative overflow-hidden border-y border-white/25 bg-white px-6 py-14 sm:px-10 lg:px-20 xl:px-30'>
           <div className='pointer-events-none absolute -right-24 -top-20 h-72 w-72 rounded-full bg-brand-accent/12 blur-3xl' />
           <div className='pointer-events-none absolute -left-16 bottom-20 h-64 w-64 rounded-full bg-orange-200/35 blur-3xl' />
 
           <div className='relative grid items-center gap-10 lg:grid-cols-[1.15fr_0.85fr]'>
             <div>
-              <h1 className='mt-4 text-5xl font-black leading-tight text-neutral-900 lg:text-6xl'>
+              <h1 className='mt-4 text-4xl font-black leading-tight text-neutral-900 sm:text-5xl lg:text-6xl'>
                 Making elderly care safer, smarter, and more accessible.
               </h1>
               <p className='mt-6 max-w-3xl text-lg leading-relaxed text-neutral-700'>
@@ -53,7 +53,7 @@ const About = () => {
           </div>
         </section>
 
-        <section className='border-b border-neutral-300 bg-neutral-300 p-30'>
+        <section className='border-b border-neutral-300 bg-neutral-300 px-6 py-14 sm:px-10 lg:px-20 xl:px-30'>
           <div className='grid gap-5 lg:grid-cols-3'>
             {principles.map((item) => {
               const Icon = item.icon;
@@ -76,7 +76,7 @@ const About = () => {
           </div>
         </section>
 
-        <section className='bg-neutral-100 p-30'>
+        <section className='bg-neutral-100 px-6 py-14 sm:px-10 lg:px-20 xl:px-30'>
           <div className='grid items-center gap-10 lg:grid-cols-[0.95fr_1.05fr]'>
             <div className='order-2 flex justify-center lg:order-1'>
               <MedicalCare className='h-auto w-full max-w-lg drop-shadow-[0_20px_22px_rgba(15,23,42,0.25)]' />

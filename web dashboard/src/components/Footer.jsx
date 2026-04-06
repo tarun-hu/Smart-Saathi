@@ -12,16 +12,16 @@ const Footer = () => {
         <footer
             id="footer"
             className="
-        flex flex-row
+        flex
         min-h-auto
-        p-20 py-15
+        px-4 py-8 sm:px-8 sm:py-10 lg:px-16 lg:py-12 xl:px-20 xl:py-15
         bg-neutral-200
         relative justify-center
       "
         >
-            <div className="flex items-center divide-x divide-neutral-500/50">
+            <div className="flex flex-wrap items-center justify-center gap-y-2 divide-x divide-neutral-500/50">
                 {footerLinks.map((link) => (
-                    <NavLink key={link.label} to={link.to} className="px-4 text-lg">
+                    <NavLink key={link.label} to={link.to} className="px-3 sm:px-4 text-sm sm:text-base lg:text-lg">
                         {link.label}
                     </NavLink>
                 ))}
@@ -29,7 +29,7 @@ const Footer = () => {
                     href="https://github.com/tarun-hu/Smart-Saathi"
                     target="_blank"
                     rel="noreferrer"
-                    className="px-4 text-lg"
+                    className="px-3 sm:px-4 text-sm sm:text-base lg:text-lg"
                 >
                     Github
                 </a>

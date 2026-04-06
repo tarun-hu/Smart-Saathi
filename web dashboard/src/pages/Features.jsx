@@ -99,21 +99,21 @@ const FeatureItem = ({ feature }) => {
 
 const PhoneMockup = ({ screenImage, title }) => {
     return (
-        <div className='w-76 shrink-0 drop-shadow-[0_26px_24px_rgba(15,23,42,0.22)]'>
+        <div className='w-56 sm:w-64 lg:w-76 shrink-0 drop-shadow-[0_26px_24px_rgba(15,23,42,0.22)]'>
             <div className='w-full relative aspect-842/1589'>
                 <div
                     className='
             overflow-hidden
-            rounded-[2.6rem]
-                        bg-black
-                        absolute inset-x-[11%] inset-y-[5%]
+            rounded-[2rem] sm:rounded-[2.35rem] lg:rounded-[2.6rem]
+                    bg-neutral-100 lg:bg-black
+                    absolute inset-x-[9.5%] sm:inset-x-[8%] inset-y-[6%] lg:inset-x-[11%] lg:inset-y-[5%]
             shadow-[0_14px_28px_-16px_rgba(2,6,23,0.7)]
           '>
                     <img
                         src={screenImage}
                         alt={title}
                         draggable={false}
-                        className='object-center h-full w-full select-none object-cover'
+                        className='object-center h-full w-full select-none object-contain lg:object-cover'
                     />
                 </div>
                 <img
@@ -146,7 +146,7 @@ const Features = () => {
                     </p>
                 </section>
 
-                <section className='border-b border-neutral-300 bg-neutral-300 p-30'>
+                <section className='border-b border-neutral-300 bg-neutral-300 px-6 py-14 sm:px-10 lg:px-20 xl:px-30'>
                     <div className='grid gap-8 lg:grid-cols-[1.15fr_0.85fr] lg:items-center'>
                         <div>
                             <h2 className='mb-6 text-2xl font-bold tracking-[0.08em] text-black md:text-3xl'>
@@ -168,7 +168,7 @@ const Features = () => {
                     </div>
                 </section>
 
-                <section className='bg-neutral-100 p-30'>
+                <section className='bg-neutral-100 px-6 py-14 sm:px-10 lg:px-20 xl:px-30'>
                     <div className='grid gap-8 lg:grid-cols-[0.85fr_1.15fr] lg:items-center'>
                         <div>
                             <h2 className='mb-6 text-2xl font-bold tracking-[0.08em] text-slate-900 md:text-3xl'>

@@ -61,9 +61,9 @@ const SupportForm = ({ className }) => {
 
   return (
     <>
-      <Card className={`min-h-[70vh] min-w-2xl ${className}`}>
+      <Card className={`min-h-[70vh] w-full min-w-full md:min-w-2xl ${className}`}>
         <>
-          <CardHeader>
+          <CardHeader className='px-4 pt-6 sm:px-6'>
             <CardTitle className='text-xl font-extrabold'>Report a bug</CardTitle>
             <CardDescription className='text-base'>
               Please help us improve our site by reporting your case
@@ -195,9 +195,9 @@ const SupportForm = ({ className }) => {
                   </Field>
                 </FieldGroup>
               </CardContent>
-              <CardFooter>
+              <CardFooter className='px-4 pb-6 sm:px-6'>
                 <FieldSet>
-                  <Field orientation='horizontal'>
+                  <Field orientation='horizontal' className='flex-wrap'>
                     <Button type='reset'>cancel</Button>
                     <Button
                       type='submit'
