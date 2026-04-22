@@ -27,11 +27,24 @@ migrate_working_dir/
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
+.flutter-plugins
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
 /build/
 /coverage/
+.metadata
+devtools_options.yaml
+
+# Code generation outputs
+*.g.dart
+*.freezed.dart
+
+# Windows shortcuts (machine-specific)
+*.lnk
+
+# Supabase schema
+supabase_schema.sql
 
 # Symbolication related
 app.*.symbols
@@ -186,3 +199,6 @@ x86/
 
 # Claude agent config
 .claude/
+
+#databse schema
+.supabase_schema.sql/
