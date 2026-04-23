@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/supabase_service.dart';
 import '../services/voice_service.dart';
+import '../services/ai_service.dart';
 import '../models/nominee.dart';
 import 'package:go_router/go_router.dart';
 
@@ -400,6 +401,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       value: _voice.isHindi,
                       onChanged: (v) async {
                         await _voice.toggleLanguage();
+                        // Keep AI response language in sync with the app setting
+                        AIService.instance.setPreferredLocale(_voice.currentLocale);
                         setState(() {});
                         _voice.speak(_voice.isHindi
                             ? 'भाषा हिंदी में बदल गई'

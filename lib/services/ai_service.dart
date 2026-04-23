@@ -19,6 +19,7 @@ class AIService {
 
   final List<Map<String, dynamic>> _conversationHistory = [];
   String? _apiKey;
+  String _preferredLocale = 'en-IN'; // mirrors VoiceService.currentLocale
 
   // Context about user's current state — updated by the home screen
   String _userContext = '';
@@ -32,6 +33,7 @@ You help with:
 - Daily health queries (general wellness tips, NOT medical advice)
 - Medication tracking and reminders
 - Hydration and mood logging
+- Vitals tracking (blood sugar and blood pressure)
 - Friendly conversation to reduce loneliness
 - Navigation within the app
 
@@ -44,16 +46,23 @@ CRITICAL RULES:
 - If they say they TOOK their pill or medicine → use mark_medication_taken tool.
 - If they share how they FEEL (happy, sad, sick, tired) → use log_wellbeing tool.
 - If they ask for THEIR STATUS, SUMMARY, or "how am I doing" → use get_status tool.
+- If they mention a BLOOD SUGAR, GLUCOSE, SUGAR LEVEL reading (e.g. "my sugar is 140", "glucose 160", "चीनी 130 है") → use log_vital tool with vital_type=blood_sugar.
+- If they mention a BLOOD PRESSURE or BP reading (e.g. "BP 120 over 80", "pressure 130/90", "बीपी 120/80 है") → use log_vital tool with vital_type=blood_pressure. Extract the two numbers as systolic and diastolic.
 - For general health questions (not app actions), give a warm 1-2 sentence answer with their context.
-- If user speaks Hindi, reply in Hindi. If English, reply in English. Never mix scripts.
 - Do NOT use markdown, bullet points, or symbols — speak naturally like a caring friend.
-- When answering about their medications, water, or mood, USE the context provided below.''';
+- When answering about their medications, water, mood, or vitals, USE the context provided below.''';
 
   Future<void> initialize() async {
     _apiKey = dotenv.env['COHERE_API_KEY'];
   }
 
   bool get isConfigured => _apiKey != null && _apiKey!.isNotEmpty;
+
+  /// Call this whenever the user changes language in the app settings.
+  /// Locale should be 'en-IN' or 'hi-IN' (mirrors VoiceService.currentLocale).
+  void setPreferredLocale(String locale) {
+    _preferredLocale = locale;
+  }
 
   void clearHistory() {
     _conversationHistory.clear();
@@ -67,6 +76,10 @@ CRITICAL RULES:
     String? userName,
     List<String>? pendingMedNames,
     int? takenMeds,
+    // Vitals context
+    double? lastBloodSugar,
+    int? lastSystolic,
+    int? lastDiastolic,
   }) {
     final parts = <String>[];
     if (userName != null) parts.add('User name: $userName');
@@ -82,6 +95,12 @@ CRITICAL RULES:
       parts.add('Water intake today: ${hydrationMl}ml of 2000ml goal ($pct%)');
     }
     if (mood != null) parts.add('Mood today: $mood');
+    if (lastBloodSugar != null) {
+      parts.add('Last blood sugar reading: ${lastBloodSugar.toStringAsFixed(0)} mg/dL');
+    }
+    if (lastSystolic != null && lastDiastolic != null) {
+      parts.add('Last blood pressure reading: $lastSystolic/$lastDiastolic mmHg');
+    }
     parts.add('Current time: ${DateTime.now().toString().substring(0, 16)}');
     _userContext = parts.join('. ');
   }
@@ -100,8 +119,14 @@ CRITICAL RULES:
     }
 
     try {
-      // Build system prompt with user context
-      String fullSystemPrompt = _systemPrompt;
+      // Build system prompt with user context + HARD language enforcement
+      // Language is always driven by the app setting, NOT by what language
+      // the STT heard — this prevents the model from switching to Hindi when
+      // the user's speech was mis-classified or ambiguously transcribed.
+      final langRule = _preferredLocale == 'hi-IN'
+          ? 'LANGUAGE RULE: You MUST always reply in Hindi (Devanagari script). Never reply in English, regardless of what language the user appears to speak.'
+          : 'LANGUAGE RULE: You MUST always reply in English. Never reply in Hindi or any other language, regardless of what language the user appears to speak.';
+      String fullSystemPrompt = _systemPrompt + '\n\n$langRule';
       if (_userContext.isNotEmpty) {
         fullSystemPrompt += '\n\nCurrent user context: $_userContext';
       }
@@ -209,6 +234,36 @@ CRITICAL RULES:
                 }
               },
               "required": ["route"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "log_vital",
+            "description": "Log a health vital reading. Use when user mentions their blood sugar, glucose, sugar level, blood pressure, or BP reading with a numeric value.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "vital_type": {
+                  "type": "string",
+                  "enum": ["blood_sugar", "blood_pressure"],
+                  "description": "Type of vital: blood_sugar (glucose, sugar, शुगर) or blood_pressure (BP, ब्लड प्रेशर)"
+                },
+                "blood_sugar_value": {
+                  "type": "number",
+                  "description": "Blood sugar / glucose reading in mg/dL. Only for vital_type=blood_sugar."
+                },
+                "systolic": {
+                  "type": "integer",
+                  "description": "Systolic (top/higher) blood pressure value in mmHg. Only for vital_type=blood_pressure."
+                },
+                "diastolic": {
+                  "type": "integer",
+                  "description": "Diastolic (bottom/lower) blood pressure value in mmHg. Only for vital_type=blood_pressure."
+                }
+              },
+              "required": ["vital_type"]
             }
           }
         }

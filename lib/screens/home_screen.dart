@@ -10,6 +10,7 @@ import '../services/ai_service.dart';
 import '../services/update_service.dart';
 import '../models/nominee.dart';
 import '../models/hydration_log.dart';
+import '../models/vital_log.dart';
 import 'package:go_router/go_router.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -46,6 +47,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   List<String> _pendingMedNames = [];
   int _takenMeds = 0;
 
+  // Last known vitals (for AI context)
+  double? _lastBloodSugar;
+  int? _lastSystolic;
+  int? _lastDiastolic;
+
   late AnimationController _pulseController;
   late AnimationController _sosGlowController;
 
@@ -71,6 +77,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     await _voice.initialize();
     await _notif.initialize();
     await _ai.initialize();
+    // Sync AI language with the user's saved preference from VoiceService
+    _ai.setPreferredLocale(_voice.currentLocale);
 
     // Run daily medication reset if needed (resets taken→pending each new day)
     await _supabase.checkAndRunDailyReset();
@@ -118,12 +126,24 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       final hydrationLogs = await _supabase.getTodayHydrationLogs();
       final allMeds = await _supabase.getMedications();
       final takenMeds = await _supabase.getTakenMedsCount();
+      // Fetch today's vitals for AI context
+      final todayVitals = await _supabase.getTodayVitals();
 
       if (mounted) {
         final pendingNames = allMeds
             .where((m) => m.status == 'pending')
             .map((m) => m.name)
             .toList();
+
+        // Extract most-recent readings by type
+        final lastBs = todayVitals
+            .where((v) => v.type == 'blood_sugar')
+            .fold<VitalLog?>(null, (prev, v) =>
+                prev == null || v.timestamp.isAfter(prev.timestamp) ? v : prev);
+        final lastBp = todayVitals
+            .where((v) => v.type == 'blood_pressure')
+            .fold<VitalLog?>(null, (prev, v) =>
+                prev == null || v.timestamp.isAfter(prev.timestamp) ? v : prev);
 
         setState(() {
           _userName = profile?['full_name'] ?? 'Friend';
@@ -135,9 +155,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _hydrationLogs = hydrationLogs;
           _pendingMedNames = pendingNames;
           _takenMeds = takenMeds;
+          _lastBloodSugar = lastBs?.value;
+          _lastSystolic = lastBp?.systolic;
+          _lastDiastolic = lastBp?.diastolic;
         });
 
-        // Update AI service with rich user context
+        // Update AI service with rich user context including vitals
         _ai.updateUserContext(
           userName: _userName,
           pendingMeds: _pendingMeds,
@@ -145,6 +168,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           mood: _todayMood,
           pendingMedNames: _pendingMedNames,
           takenMeds: _takenMeds,
+          lastBloodSugar: _lastBloodSugar,
+          lastSystolic: _lastSystolic,
+          lastDiastolic: _lastDiastolic,
         );
       }
     } catch (e) {
@@ -413,6 +439,92 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             await _voice.speak(_voice.isHindi
                 ? 'आज: $_pendingMeds दवाइयाँ बाकी, $_hydrationMl ml पानी पिया, मूड: ${_todayMood ?? "अभी तक नहीं"}'
                 : 'Today: $_pendingMeds meds pending, ${_hydrationMl}ml water, mood: ${_todayMood ?? "not logged yet"}');
+            break;
+          case 'log_vital':
+            final vitalType = (args['vital_type'] ?? '').toString();
+            if (vitalType == 'blood_sugar') {
+              final rawVal = args['blood_sugar_value'];
+              final bsValue = rawVal != null
+                  ? double.tryParse(rawVal.toString())
+                  : null;
+              if (bsValue != null) {
+                try {
+                  await _supabase.addVitalLog(
+                    type: 'blood_sugar',
+                    value: bsValue,
+                  );
+                  if (mounted) setState(() => _lastBloodSugar = bsValue);
+                  final bsInt = bsValue.toStringAsFixed(0);
+                  // Give a brief contextual comment without medical advice
+                  final bsComment = bsValue < 70
+                      ? (_voice.isHindi ? 'यह थोड़ा कम है, कुछ मीठा खाएं।' : 'That is a bit low, have something sweet.')
+                      : bsValue > 180
+                          ? (_voice.isHindi ? 'यह थोड़ा अधिक है, डॉक्टर से बात करें।' : 'That is on the higher side, mention it to your doctor.')
+                          : (_voice.isHindi ? 'अच्छा है।' : 'That looks okay.');
+                  await _voice.speak(_voice.isHindi
+                      ? 'आपका शुगर $bsInt mg/dL लॉग किया गया। $bsComment'
+                      : 'Blood sugar $bsInt mg/dL saved. $bsComment');
+                } catch (e) {
+                  debugPrint('Log blood sugar error: $e');
+                  await _voice.speak(_voice.isHindi
+                      ? 'शुगर लॉग करने में समस्या हुई।'
+                      : 'There was a problem saving your blood sugar.');
+                }
+              } else {
+                // Value not captured — ask and enter conversation mode
+                await _voice.speak(_voice.isHindi
+                    ? 'आपका ब्लड शुगर कितना है? mg/dL में बताइए।'
+                    : 'What is your blood sugar reading in mg/dL?');
+                shouldEnterConversationMode = true;
+              }
+            } else if (vitalType == 'blood_pressure') {
+              final sys = args['systolic'] != null
+                  ? int.tryParse(args['systolic'].toString())
+                  : null;
+              final dia = args['diastolic'] != null
+                  ? int.tryParse(args['diastolic'].toString())
+                  : null;
+              if (sys != null && dia != null) {
+                try {
+                  await _supabase.addVitalLog(
+                    type: 'blood_pressure',
+                    systolic: sys,
+                    diastolic: dia,
+                  );
+                  if (mounted) {
+                    setState(() {
+                      _lastSystolic = sys;
+                      _lastDiastolic = dia;
+                    });
+                  }
+                  // Brief contextual comment
+                  final bpComment = sys > 140 || dia > 90
+                      ? (_voice.isHindi ? 'यह थोड़ा अधिक है। कृपया डॉक्टर को बताएं।' : 'That is a bit high. Please mention it to your doctor.')
+                      : sys < 90 || dia < 60
+                          ? (_voice.isHindi ? 'यह थोड़ा कम है। आराम करें और पानी पिएं।' : 'That is a bit low. Rest and drink water.')
+                          : (_voice.isHindi ? 'बहुत अच्छा।' : 'That looks good.');
+                  await _voice.speak(_voice.isHindi
+                      ? 'आपका बीपी $sys/$dia mmHg लॉग किया गया। $bpComment'
+                      : 'Blood pressure $sys/$dia mmHg saved. $bpComment');
+                } catch (e) {
+                  debugPrint('Log blood pressure error: $e');
+                  await _voice.speak(_voice.isHindi
+                      ? 'ब्लड प्रेशर लॉग करने में समस्या हुई।'
+                      : 'There was a problem saving your blood pressure.');
+                }
+              } else {
+                // Values not captured — ask and enter conversation mode
+                await _voice.speak(_voice.isHindi
+                    ? 'आपका ब्लड प्रेशर कितना है? ऊपर का और नीचे का नंबर बताइए।'
+                    : 'What is your blood pressure? Please say the top and bottom numbers.');
+                shouldEnterConversationMode = true;
+              }
+            } else {
+              await _voice.speak(_voice.isHindi
+                  ? 'कौन सा विटल लॉग करना है? शुगर या ब्लड प्रेशर?'
+                  : 'Which vital would you like to log, blood sugar or blood pressure?');
+              shouldEnterConversationMode = true;
+            }
             break;
           case 'navigate_to':
             final route = (args['route'] ?? '/home').toString();
